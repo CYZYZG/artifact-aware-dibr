@@ -69,7 +69,18 @@ res["stats"]    # 各阶段指标（含 GT-free 回投一致性）
 3. 已经有损坏的图：交给 `viewfill`，`--repair-warp auto`（默认）会检测偏差并自动用 Z-buffer 重 warp
    （实测修复后与干净流程逐像素一致）；不想被改动就加 `--repair-warp never`。
 
-详细数据与验证见 `复现方案.md` §9.5。
+若你的调用是 `scatter_image(frame, inv, direction=-1, scale_factor=44.8, inverse_ordering=True)`
+（**这就是被判定为损坏的那一档**：偏差 1.88 %、前景 0.54 %），最小改动是把 `inverse_ordering` 改成
+`False`（偏差 0.08 %，空洞掩码完全不变）；想要严格 Z-buffer 就用签名与返回值完全一致的 drop-in：
+
+```python
+from viewfill.compat import scatter_image_safe
+img, mask, depth = scatter_image_safe(frame, inverse_depth,
+                                      direction=-1, scale_factor=44.8,
+                                      reproject_depth=True)   # 偏差 0.00 %
+```
+
+详细数据与验证见 `复现方案.md` §9.5 / §9.6。
 
 ## 流水线
 

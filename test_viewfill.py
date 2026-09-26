@@ -22,7 +22,8 @@ sys.path.insert(0, HERE)
 
 from dibr import io_utils, viz                      # noqa: E402
 from viewfill import FillConfig, io as vio, report  # noqa: E402
-from viewfill.pipeline import fill_warped, warp_and_fill  # noqa: E402
+from viewfill.pipeline import (check_warp_quality, disparity_from_depth,  # noqa: E402
+                               fill_warped, warp_and_fill)
 
 OUT = os.path.join(HERE, "output", "viewfill_test")
 IMG = os.path.join(HERE, "input", "color-cam6-f000.jpg")
@@ -45,7 +46,6 @@ def main():
 
     # ---------------------------------------------------------------- 1) convention
     cfg = FillConfig(scale=-44.8)
-    from viewfill.pipeline import disparity_from_depth
     disp = disparity_from_depth(inv * 255.0, cfg.scale)
     expected = inv * cfg.scale
     check("disparity == inverse_depth * (-44.8)",
@@ -124,6 +124,22 @@ def main():
           int(res_fix["remaining"].sum()) == 0,
           f"repaired=True, max diff vs the clean pipeline {same_fix:g}, "
           f"residual {int(res_fix['remaining'].sum())}")
+
+    # ------------------- 3c) drop-in replacement with the caller's signature
+    from viewfill.compat import scatter_image_safe
+    w_s, m_s, d_s = scatter_image_safe(rgb, inv, direction=-1, scale_factor=44.8,
+                                       inverse_ordering=True, reproject_depth=True)
+    hole_s = m_s > 0
+    q_s, _, _ = check_warp_quality(np.asarray(w_s, np.float32), hole_s, rgb, inv * 255.0,
+                                   (disparity_from_depth(inv * 255.0, -44.8), None), cfg)
+    res_s = fill_warped(np.clip(w_s, 0, 255).astype(np.float32), hole_s,
+                        np.where(hole_s, 0.0, 255.0 / (d_s + 1e-6)).astype(np.float32),
+                        rgb, inv, cfg=cfg)
+    check("viewfill.compat.scatter_image_safe is a drop-in with zero deviation",
+          np.array_equal(hole_s, hole_ext) and q_s["warp_deviation_pct"] == 0.0
+          and int(res_s["remaining"].sum()) == 0,
+          f"same hole mask as the original call ({int(hole_s.sum())} px), "
+          f"deviation {q_s['warp_deviation_pct']:.2f}%")
     report.save(res_ext, cfg, os.path.join(OUT, "02_external_warp"), ref_rgb=rgb)
     print(f"  -> {os.path.join(OUT, '02_external_warp')}")
 
