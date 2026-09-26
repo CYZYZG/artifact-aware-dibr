@@ -180,7 +180,7 @@ dibr/                  算法包
 step0_calibrate.py .. step4_inpaint.py   各步 CLI
 run_all.py             Step 8 串行驱动与汇总
 check_step*.py         各步自动检查（89 项断言）
-_work/                 探索性探针脚本（定位歧义与 bug 的过程记录）
+（历史临时目录 _work，已清理）/                 探索性探针脚本（定位歧义与 bug 的过程记录）
 ```
 
 ## 依赖
