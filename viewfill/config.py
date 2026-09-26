@@ -58,15 +58,18 @@ class FillConfig:
     # Widen the splat footprint before warping so that a fast disparity ramp at a
     # silhouette does not leave a 1-2 px crack network (the main source of the visible seam
     # at the filled/background junction).  int n = n iterations of a 3x3 max filter
-    # everywhere (default 3: smallest seam, and measured to have no geometric cost - the
-    # warped foreground area is unchanged, only the disocclusion band grows ~1%);
-    # "auto"/"auto5"/"auto7" widen only where the disparity gradient demands it (best GT
-    # PSNR at auto5, but a slightly worse seam tail).  Measured, scale -44.8:
-    #   0 -> seam 10.27/p90 39.1/p99 65.8/cracks 12682
-    #   2 -> 7.90/22.3/40.6/9526      3 -> 4.49/11.2/25.5/9294 (default)
-    #   auto5 -> 5.01/13.5/27.5/10420 (GT 20.40, the best)   auto7 -> 4.54/12.1/31.7/10131
+    # everywhere; "auto"/"auto5"/"auto7" widen only where the disparity gradient demands it,
+    # after smoothing the demand map with a w x w max filter so that the boundary between
+    # widened and untouched disparity does not create new thin holes.
+    # Measured over 6 frames of MSR Ballet cam6 -> cam7 (seam mean / p90 / crack px /
+    # GT PSNR / GT SSIM):
+    #   0     10.27 / 39.12 / 12682 / 20.39 / 0.7100   (frame f000 only)
+    #   2      7.69 / 21.65 /  9351 / 20.35 / 0.7103
+    #   3      5.52 / 13.99 /  9133 / 20.32 / 0.7108
+    #   auto5  5.21 / 13.14 / 10182 / 20.36 / 0.7112
+    #   auto7  4.99 / 12.42 /  9936 / 20.34 / 0.7114  <- default (best seam + best SSIM)
     # See 复现方案.md 9.10.
-    depth_dilate: object = 3
+    depth_dilate: object = "auto7"
     # Reject source patches that straddle a depth edge (patch inverse-depth std above this
     # tolerance, on the 0..255 depth scale).  Such a patch carries the dark silhouette edge
     # or its shadow into the hole, which is what shows up as a ghost contour along the seam.
