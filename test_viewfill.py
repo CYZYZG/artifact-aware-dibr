@@ -234,6 +234,34 @@ def main():
     check("the pipeline is deterministic", same2 == 0.0, f"max diff {same2:g}")
 
     # ---------------------------------------------------------------- summary
+    # ------------------------------------------- 7) dark rim at the filled boundary
+    import cv2 as _cv2
+
+    def _rim(img, hole):
+        g = (0.299 * img[..., 0] + 0.587 * img[..., 1] + 0.114 * img[..., 2])
+        di = _cv2.distanceTransform(hole.astype(np.uint8), _cv2.DIST_L2, 5)
+        return (float(g[hole & (di <= 3)].mean() - g[hole & (di > 3) & (di <= 10)].mean()),
+                float(g[hole].mean()))
+
+    r_hhf = fill_holes(rgb, inv, crack_fill="hhf", return_info=True)
+    r_auto = info                       # default crack_fill="auto"
+    rim_hhf, _ = _rim(r_hhf["I_filled"], r_hhf["hole_mask"])
+    rim_auto, _ = _rim(r_auto["I_filled"], r_auto["hole_mask"])
+    crack_hhf = float((0.299 * r_hhf["I_filled"][..., 0]
+                       + 0.587 * r_hhf["I_filled"][..., 1]
+                       + 0.114 * r_hhf["I_filled"][..., 2])[r_hhf["crack"]].mean())
+    crack_auto = float((0.299 * r_auto["I_filled"][..., 0]
+                        + 0.587 * r_auto["I_filled"][..., 1]
+                        + 0.114 * r_auto["I_filled"][..., 2])[r_auto["crack"]].mean())
+    check("background-side crack filling reduces the dark rim along the silhouette",
+          rim_auto > rim_hhf and crack_auto > crack_hhf,
+          f"rim {rim_hhf:+.2f} -> {rim_auto:+.2f} gray levels, crack luma "
+          f"{crack_hhf:.1f} -> {crack_auto:.1f} "
+          f"({r_auto['stats'].get('crack_bg_side_px', 0)} px filled from the bg side)")
+    check("the residual rim is close to the image's own contact shadow "
+          "(reference: -4.1 gray levels near the silhouette)",
+          abs(rim_auto) < 6.0, f"rim {rim_auto:+.2f}")
+
     n_fail = sum(1 for _, ok, _ in results if not ok)
     print(f"\n{len(results) - n_fail}/{len(results)} checks passed   "
           f"(total {time.time()-t0:.1f}s)")

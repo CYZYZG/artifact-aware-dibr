@@ -150,8 +150,62 @@ def hhf_fill(img, valid, sigma=1.0, ksize=5, min_size=8, coarse_iters=16,
 # --------------------------------------------------------------------------- #
 # joint step
 # --------------------------------------------------------------------------- #
+def bg_side_fill(I_w, D_w, crack, valid, lam=5.0, max_reach=8):
+    """Fill crack pixels from the BACKGROUND side of the depth discontinuity.
+
+    A crack that sits on a depth edge (|disparity on the two sides| >= lam) is a sliver of
+    revealed background.  HHF interpolates isotropically and therefore pulls the (usually
+    much darker) foreground edge into the sliver, which leaves a dark rim along the
+    silhouette.  Here such a crack pixel copies the nearest valid pixel of the background
+    side instead.  Cracks *inside* a uniform region (both sides the same disparity) are
+    left untouched so that HHF, as in the paper, fills them.
+
+    Returns (colour, mask) where mask marks the pixels handled here.
+    """
+    H, W = crack.shape
+    img = np.asarray(I_w, np.float32)
+    D = np.asarray(D_w, np.float32)
+    val = np.asarray(valid, bool)
+    C = img.shape[2] if img.ndim == 3 else 1
+    src = img.reshape(H, W, C)
+    out = np.zeros((H, W, C), np.float32)
+    done = np.zeros((H, W), bool)
+
+    # nearest valid pixel to the left / right along the row, plus its disparity
+    lcol = np.zeros((H, W, C), np.float32)
+    ld = np.full((H, W), np.nan, np.float32)
+    rcol = np.zeros((H, W, C), np.float32)
+    rd = np.full((H, W), np.nan, np.float32)
+    lfound = np.zeros((H, W), bool)
+    rfound = np.zeros((H, W), bool)
+    xs = np.arange(W)[None, :].repeat(H, 0)
+    ys = np.arange(H)[:, None].repeat(W, 1)
+    for k in range(1, max_reach + 1):
+        for side, xk, found, col, dd in ((0, xs - k, lfound, lcol, ld),
+                                        (1, xs + k, rfound, rcol, rd)):
+            inb = (xk >= 0) & (xk < W) & ~found
+            if not inb.any():
+                continue
+            ok = inb & val[ys, np.clip(xk, 0, W - 1)]
+            if ok.any():
+                col[ok] = src[ys[ok], np.clip(xk[ok], 0, W - 1)]
+                dd[ok] = D[ys[ok], np.clip(xk[ok], 0, W - 1)]
+                found[ok] = True
+
+    edge = np.isfinite(ld) & np.isfinite(rd) & (np.abs(ld - rd) >= lam)
+    sel_l = crack & edge & (ld <= rd) & lfound          # left side is the background
+    sel_r = crack & edge & (rd < ld) & rfound           # right side is the background
+    out[sel_l] = lcol[sel_l]
+    out[sel_r] = rcol[sel_r]
+    done = sel_l | sel_r
+    if C == 1:
+        out = out[..., 0]
+    return out, done
+
+
 def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
-                hhf_ksize=5, shape_filter="none", max_thickness=3.0):
+                hhf_ksize=5, shape_filter="none", max_thickness=3.0,
+                fill_mode="hhf"):
     """Detect cracks in D_w, refill D_w from D_hat, and refill I_w with HHF.
 
     shape_filter
@@ -189,7 +243,16 @@ def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
     I_hhf = hhf_fill(np.asarray(I_w, np.float32), valid, sigma=hhf_sigma, ksize=hhf_ksize)
     I_filled = np.where(crack[..., None], I_hhf, I_w) if I_w.ndim == 3 else \
         np.where(crack, I_hhf, I_w)
+    bg_done = None
+    if fill_mode == "auto":
+        # cracks lying on a depth step are disocclusion slivers: take their content from
+        # the background side instead of letting the isotropic HHF pull in the (dark)
+        # foreground edge, which otherwise leaves a dark rim along the silhouette
+        bg_col, bg_done = bg_side_fill(I_w, D_w, crack, valid, lam=lam)
+        use = bg_done[..., None] if I_w.ndim == 3 else bg_done
+        I_filled = np.where(use, bg_col, I_filled)
     res = dict(crack=crack, crack_raw=crack_raw, D_hat=D_hat, diff=diff, D_filled=D_filled,
+               bg_side_px=int(0 if bg_done is None else bg_done.sum()),
                I_hhf=I_hhf, I_filled=I_filled, hole=hole,
                remaining_holes=hole & ~crack,
                empty_crack=crack & hole, translucent_crack=crack & ~hole)

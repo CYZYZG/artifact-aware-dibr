@@ -19,7 +19,7 @@ __all__ = ["fill_holes"]
 
 def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
                splat="sub", rule="zbuf", lam=5.0, se_orientation="auto",
-               crack_shape="none", beta=150.0, beta_mode="mean",
+               crack_shape="none", crack_fill="auto", beta=150.0, beta_mode="mean",
                skip_ghosts=False, fix_mode="copy", fg_side="gt",
                band_radius=2, alpha_sim=11.0, hhf_sigma=1.0, ksize=9,
                n_window=69, sizes=(9, 7, 5, 3), max_iter=400000,
@@ -44,6 +44,9 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
         splat without a depth test does and it mixes foreground into background.
     lam : crack detection threshold on the 0..255 depth scale (paper: 5).
     se_orientation : "auto" (default), "v", "h", "both" - the line SE must cross the slit.
+    crack_fill : "auto" (default) fills cracks that sit on a depth step from the background
+        side (avoids the dark rim that the isotropic HHF leaves along a silhouette);
+        "hhf" is the paper-faithful isotropic hierarchical fill.
     beta, beta_mode : adaptive patch-size acceptance threshold (default 150 on the
         per-pixel mean squared error scale).
     skip_ghosts : skip the ghost-removal stage (measured to be within noise on the data
@@ -85,6 +88,7 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
 
     cfg = FillConfig(scale=scale, splat=splat, rule=rule, lam=lam,
                      se_orientation=se_orientation, crack_shape=crack_shape,
+                     crack_fill=crack_fill,
                      beta=beta, beta_mode=beta_mode, skip_ghosts=skip_ghosts,
                      fix_mode=fix_mode, fg_side=fg_side, band_radius=band_radius,
                      alpha_sim=alpha_sim, hhf_sigma=hhf_sigma, ksize=ksize,

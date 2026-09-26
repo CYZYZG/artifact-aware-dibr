@@ -44,6 +44,16 @@ class FillConfig:
     beta: float = 150.0       # acceptance threshold on the normalised patch cost
     beta_mode: str = "mean"   # mean (per-pixel MSE; paper's 35 is unreachable on 8-bit) | sum
     max_iter: int = 400000
+    # Dark rim along the filled-region boundary: the template patch contains the (dark)
+    # foreground edge of the silhouette, so the matcher is driven to reproduce that edge
+    # inside the hole.  bg_template masks those pixels out of the SSD; require_full_bg
+    # additionally demands that no pixel of the source patch is foreground.
+    bg_template: bool = True
+    require_full_bg: bool = False
+    # Cracks lying on a depth step are disocclusion slivers: fill them from the background
+    # side ("auto") instead of the isotropic HHF, which pulls in the dark foreground edge
+    # and leaves a rim along the silhouette.  "hhf" is the paper-faithful behaviour.
+    crack_fill: str = "auto"
 
     # ---- misc --------------------------------------------------------------
     oofa_frac: float = 0.5
@@ -52,7 +62,8 @@ class FillConfig:
 
     def patch_params(self) -> dict:
         return dict(n_window=self.n_window, sizes=tuple(self.sizes), beta=self.beta,
-                    beta_mode=self.beta_mode, max_iter=self.max_iter, splat=self.splat)
+                    beta_mode=self.beta_mode, max_iter=self.max_iter, splat=self.splat,
+                    bg_template=self.bg_template, require_full_bg=self.require_full_bg)
 
     def as_dict(self) -> dict:
         d = dict(self.__dict__)

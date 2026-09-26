@@ -121,7 +121,8 @@ SEARCH_DIAG = {"nv0": 0, "region": 0, "nonfinite": 0, "calls": 0, "ok_empty": 0}
 
 def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=69,
                  sizes=(9, 7, 5, 3), beta=35.0, bg_only=True, beta_mode="mean",
-                 require_full_valid=False):
+                 require_full_valid=False, D_w=None, bg_template=False,
+                 require_full_bg=False):
     """Best source patch in the reference image.  Returns (qy, qx, k, cost, n_cand, used_bg).
 
     (py, px)  centre of the patch to be filled, in the SYNTHETIC view (template source)
@@ -150,6 +151,12 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
     conn = (ref_depth[my0:my1, mx0:mx1] <= T).astype(np.uint8)
     ero = cv2.erode(conn, DIAMOND7).astype(bool)
     ok_crop = ero[y0 - my0: y1 - my0, x0 - mx0: x1 - mx0]
+    # a wider margin (and a float copy) is needed when the WHOLE source patch has to be
+    # background, so that no foreground pixel of the source can be copied into the hole
+    mm = max(m, max(sizes)) if require_full_bg else m
+    fy0, fx0 = max(0, y0 - mm), max(0, x0 - mm)
+    fy1, fx1 = min(H, y1 + mm), min(W, x1 + mm)
+    mbg_f = (ref_depth[fy0:fy1, fx0:fx1] <= T).astype(np.float32) if require_full_bg else None
     used_bg = False
     SEARCH_DIAG["calls"] += 1
     for k in sizes:
@@ -160,6 +167,14 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
         yc, xc = np.clip(ys, 0, H - 1), np.clip(xs, 0, W - 1)
         templ = I_w[yc][:, xc].astype(np.float32)
         tmask = (inb & valid[yc][:, xc]).astype(np.float32)
+        if bg_only and bg_template and D_w is not None:
+            # the template contains the (dark) foreground edge of the silhouette; if it is
+            # kept in the SSD the matcher is driven to reproduce that edge inside the hole,
+            # which shows up as a dark rim.  Mask those pixels out.
+            bt = inb & (np.asarray(D_w)[yc][:, xc] <= T)
+            keep = tmask * bt
+            if keep.sum() >= max(9.0, 0.25 * tmask.sum()):
+                tmask = keep
         nv = float(tmask.sum())
         if nv == 0:
             SEARCH_DIAG["nv0"] += 1
@@ -179,6 +194,11 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
             cand &= fc[r: r + ssd.shape[0], r: r + ssd.shape[1]]
         if bg_only:
             ok = ok_crop[r: r + ssd.shape[0], r: r + ssd.shape[1]]
+            if require_full_bg and mbg_f is not None:
+                fb = cv2.boxFilter(mbg_f, -1, (k, k), normalize=False,
+                                   borderType=cv2.BORDER_CONSTANT)
+                fbc = (fb >= k * k - 1e-6)[y0 - fy0: y1 - fy0, x0 - fx0: x1 - fx0]
+                ok = ok & fbc[r: r + ssd.shape[0], r: r + ssd.shape[1]]
             if ok.any():
                 cand = ok
                 used_bg = True
@@ -265,7 +285,9 @@ def fill_component(I_w, D_w, valid, lab, k, bbox, src_of, ref_color, ref_depth, 
         found = search_patch(I_w, valid, src_color, src_depth, py, px, wy, wx, T,
                              n_window, sizes, beta, bg_only,
                              params.get("beta_mode", "mean"),
-                             require_full_valid=full_valid)
+                             require_full_valid=full_valid, D_w=D_w,
+                             bg_template=params.get("bg_template", False),
+                             require_full_bg=params.get("require_full_bg", False))
         if found is None:
             log["failed"] += 1
             log["fail_reason"] = "no patch"

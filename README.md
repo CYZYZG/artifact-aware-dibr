@@ -37,6 +37,7 @@ fixed = fill_holes(image, inv_depth, verbose=True)        # 打印各阶段日�
 | `splat` | `"sub"` | `sub` 亚像素（裂纹少）／`floor`/`round` 整数单点（经典 DIBR，裂纹多） |
 | `rule` | `"zbuf"` | `zbuf` 最近样本优先／`avg` 权重平均 |
 | `lam` | `5.0` | 裂纹检测阈值（0..255 深度尺度） |
+| `crack_fill` | `"auto"` | 裂纹落在深度不连续处时只从**背景侧**取内容（避免轮廓上的暗色描边）；`"hhf"` = 论文忠实的各向同性填充 |
 | `beta`, `beta_mode` | `150`, `"mean"` | 自适应 patch 尺寸的接受阈值 |
 | `skip_ghosts` | `False` | 跳过鬼影矫正 |
 | `n_window`, `sizes` | `69`, `(9,7,5,3)` | 搜索窗边长 / patch 尺寸链 |
