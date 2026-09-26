@@ -19,7 +19,7 @@ __all__ = ["fill_holes"]
 
 def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
                splat="sub", rule="zbuf", lam=5.0, se_orientation="auto",
-               crack_shape="none", crack_fill="hhf", depth_dilate="auto7", epipolar=None, struct_pen=0.5, src_depth_tol=0.0,
+               crack_shape="none", crack_fill="hhf", depth_dilate="auto7", epipolar=None, struct_pen=8.0, src_depth_tol=0.0,
                beta=150.0, beta_mode="mean",
                skip_ghosts=False, fix_mode="copy", fg_side="gt",
                band_radius=2, alpha_sim=11.0, hhf_sigma=1.0, ksize=9,
@@ -48,7 +48,8 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
     crack_fill : "hhf" (default, the paper's isotropic hierarchical fill) | "linear"
         (interpolate across a thin crack) | "bg" (copy the background side).  Measured to be
         equivalent-to-worse on the seam metric, kept for experiments.
-    struct_pen : structure-aware cross-row penalty (default 0.5).  A source patch may
+    struct_pen : structure-aware cross-row penalty (default 8.0: the rail alignment is
+        best there by visual check, and it is also the best on all/band PSNR).  A source patch may
         be borrowed from another row, but pays struct_pen * w * dy^2, where w grows
         with the horizontal-structure strength around the hole.  On vertically
         homogeneous background w ~ 0 (matches stay free); near a rail/fence the

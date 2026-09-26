@@ -85,11 +85,11 @@ class FillConfig:
     # stay free; near a rail/fence the penalty stops the vertical shift.
     # Measured (2 frames; all / band / barre-row PSNR, row-offset p90 / max):
     #   0.0  28.40/24.66/24.64  p90 22.5 max 49
-    #   0.5  28.26/24.00/25.08  p90  4.0 max 21  <- default (barre rows better than off)
+    #   0.5  28.26/24.00/25.08  p90  4.0 max 21
     #   2.0  28.35/24.40/24.06  p90  2.0 max 16
-    #   8.0  28.41/24.74/24.42  p90  1.0 max  8  (best global quality, tightest drift)
+    #   8.0  28.41/24.74/24.42  p90  1.0 max  8  <- default (rail alignment best by visual check)
     # Tune on your own content; 0 disables the term.
-    struct_pen: float = 0.5
+    struct_pen: float = 8.0
     # MEASURED VERDICT - constraining this does NOT help here.  Error decomposition over
     # 2 frames (all / filled-band / barre-row PSNR): None 28.40/24.66/24.64 (default,
     # best), 2 = 28.33/24.30/24.29, 0 = 28.12/23.40/19.92 (much worse, even on the
