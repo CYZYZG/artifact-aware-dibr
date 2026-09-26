@@ -1,0 +1,21 @@
+# ---- 可重新生成的流程产物（约 3.9 GB，2545 个文件） ----
+# 由 step*.py / run_all.py 重新生成；如需入库请 git add -f 指定文件
+output/
+.tmp/
+
+# ---- 第三方 / 受限输入，不属于本实现 ----
+# 论文 PDF（IEEE 版权）与 MSR 3D Video 数据（README 声明仅限研究用途）
+An Artifact-Type Aware DIBR Method for View Synthesis.pdf
+input/
+
+# ---- 探查脚本产生的中间二进制与文本 ----
+_work/*.npy
+_work/*.png
+_work/paper_raw.txt
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/

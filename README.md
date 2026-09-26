@@ -1,0 +1,94 @@
+# An Artifact-Type Aware DIBR Method for View Synthesis —— 复现
+
+论文：A. Q. de Oliveira, M. Walter, C. R. Jung, *An Artifact-type Aware DIBR Method for
+View Synthesis*, IEEE Signal Processing Letters, 2018, DOI 10.1109/LSP.2018.2870342。
+论文无开源代码，本仓库是完整的自行实现 + 逐步验证。
+
+**详细方案、逐步规格、验收标准、25 条论文歧义的处理记录、全部实测结论 →
+[复现方案.md](复现方案.md)**（先读这一份）。
+
+## 流水线
+
+```
+参考视图 I + 逆深度 P
+  └─ Step 0  标定：官方 calibParams-ballet.txt + 逆深度公式 → 逐像素位移场
+  └─ Step 1  前向 warp（DIBR）：整数单点 / 亚像素 Z-buffer，输出 I_w、D_w（空洞 = −1）、空洞掩码
+  └─ Step 2  裂纹检测与 HHF 填补        (论文 II-A)  λ=5，线状结构元，掩膜高斯金字塔
+  └─ Step 3  鬼影检测与搬移到 p_FG      (论文 II-B)  截尾均值阈值 + 掩膜中位数一致性检验
+  └─ Step 4  空洞分流：OOFA / disocclusion (论文 II-C)
+  └─ Step 5  局部 FG-BG 提取 + 优先级 P(p)=B·E / C·D
+  └─ Step 6  参考图上的 patch 匹配：N=69 搜索窗、仅背景候选、自适应 9×9→3×3
+  └─ Step 7  逐空洞迭代填充直到无空洞
+  └─ Step 8  与真实相邻相机图像算 PSNR/SSIM（4 组相机对 × 10 帧）
+```
+
+## 快速开始
+
+```powershell
+$py = "<你的 python>"                     # 需要 numpy / opencv-python-headless / scipy / Pillow
+& $py step0_calibrate.py --ref_cam 6 --dst_cam 7 --frame f000
+& $py step1_warp.py --ref_cam 6 --dst_cam 7 --frame f000 --mode calib --use_dv --rule zbuf `
+      --splat floor --out_dir output\step1_warp_int
+& $py step2_cracks.py --ref_cam 6 --dst_cam 7 --frame f000 `
+      --step1_dir output\step1_warp_int --out_dir output\step2_cracks_int
+& $py step3_ghosts.py --ref_cam 6 --dst_cam 7 --frame f000
+& $py step4_inpaint.py --ref_cam 6 --dst_cam 7 --frame f000 --beta 150 --beta_mode mean
+
+# 全量评价（4 组相机对 × 10 帧，约 56 分钟；--skip_existing 可断点续跑）
+& $py run_all.py --pairs 6:7,6:5,3:0,3:2 --frames all --n_frames 10 --beta 150
+```
+
+## 逐步验证（每一步都有断言，共 89 项）
+
+```powershell
+& $py check_step1.py      # 17 项：warp 正确性、Z-buffer、掩码/取值域、OOFA 侧别、真值增益
+& $py check_step2.py      # 22 项：裂纹检测语义、HHF 不使用空数据、留一验证、真值裁决
+& $py check_step3.py      # 18 项：OOFA/候选带、掩膜中位数、搬移正确性、真值裁决
+& $py check_step4_7.py    # 23 项：分流、优先级单调性、掩膜 SSD、只写空洞、7 组消融
+& $py check_step8.py      #  9 项：全量汇总一致性 + progress.png
+```
+
+## 主要结果（40 次运行，与真实目标相机图像比较）
+
+| 相机对 | 空洞占比 | warp → +裂纹 → +鬼影 → **+填充** | SSIM |
+| --- | --- | --- | --- |
+| cam6→cam7 | 15.97 % | 14.64 → 17.01 → 17.06 → **27.53 dB** | 0.298 → **0.824** |
+| cam6→cam5 | 15.32 % | 14.97 → 15.75 → 15.77 → **27.00 dB** | 0.528 → **0.808** |
+| cam3→cam0（论文同款，大基线） | 33.00 % | 11.19 → 12.20 → 12.21 → **22.98 dB** | 0.192 → **0.721** |
+| cam3→cam2（论文同款） | 17.04 % | 14.51 → 15.26 → 15.26 → **26.42 dB** | 0.484 → **0.800** |
+
+40/40 次运行空洞全部填满。论文三项贡献中，"参考图搜索 + 仅背景候选"被强烈验证
+（+9.28 / +3.00 dB），`B`/`E` 各有正贡献（+1.37 / +1.09 dB）；而鬼影步在本数据上无可测收益
+（+0.018 dB），且用 `B·E` 取代 Criminini `C·D` 亦无增益 —— 详见 [复现方案.md](复现方案.md) §6。
+
+## 目录
+
+```
+复现方案.md            方案 / 规格 / 验收 / 歧义处理 / 全部结论（主文档）
+dibr/                  算法包
+  io_utils.py            非 ASCII 路径安全的读写与数据定位
+  calib.py               标定解析、官方逆深度公式、精确位移场
+  warp.py                前向 warp（Z-buffer / 权重平均 / 单点与亚像素散射）+ 暴力参考实现
+  cracks.py              裂纹检测、HHF、形态统计、留一验证
+  ghosts.py              OOFA 扫描、候选带、掩膜中位数、鬼影判定与搬移
+  holes.py               OOFA / disocclusion 分流
+  inpaint.py             优先级、掩膜 SSD patch 匹配、自适应尺寸、迭代填充
+  viz.py / plot.py       可视化与图表
+step0_calibrate.py .. step4_inpaint.py   各步 CLI
+run_all.py             Step 8 串行驱动与汇总
+check_step*.py         各步自动检查（89 项断言）
+_work/                 探索性探针脚本（定位歧义与 bug 的过程记录）
+```
+
+## 依赖
+
+见 [requirements.txt](requirements.txt)：numpy、opencv-python-headless、scipy、Pillow。
+
+## 被 git 忽略的内容（可自行决定是否入库）
+
+- `output/`：约 3.9 GB 的中间产物与结果，全部可由上面的命令重新生成。若想版本化关键结果：
+  `git add -f output/step8_eval/report.md output/step8_eval/progress.png`
+- 论文 PDF 与 `input/` 图像：第三方/受限素材（IEEE 版权；MSR 数据声明仅限研究用途）。
+  `input/` 需要放回 `color-cam6-f000..f009.jpg` 与 `depth-cam6-f000..f009.png`；
+  完整数据集与官方标定放在 `D:\项目\3DVideos-distrib\MSR3DVideo-Ballet`（路径可用
+  `--dataset_root` 修改）。
