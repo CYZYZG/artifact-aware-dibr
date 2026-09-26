@@ -19,7 +19,7 @@ __all__ = ["fill_holes"]
 
 def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
                splat="sub", rule="zbuf", lam=5.0, se_orientation="auto",
-               crack_shape="none", crack_fill="hhf", depth_dilate=3, src_depth_tol=0.0,
+               crack_shape="none", crack_fill="hhf", depth_dilate="auto7", src_depth_tol=0.0,
                beta=150.0, beta_mode="mean",
                skip_ghosts=False, fix_mode="copy", fg_side="gt",
                band_radius=2, alpha_sim=11.0, hhf_sigma=1.0, ksize=9,
@@ -51,12 +51,14 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
     depth_dilate : widen the splat footprint before warping, so that a fast disparity ramp
         at a silhouette does not leave a 1-2 px crack network - the main source of the
         visible seam at the filled/background junction.  An int n applies n iterations of a
-        3x3 max filter everywhere (default 3); "auto"/"auto5"/"auto7" widen only where the
-        disparity gradient demands it (demand map smoothed with a w x w max filter first).
+        3x3 max filter everywhere; "auto"/"auto5"/"auto7" widen only where the disparity
+        gradient demands it (demand map smoothed with a w x w max filter first).
         Paired test over 8 frames of cam6 -> cam7 with the calibrated displacement field
-        (seam mean / p90 / GT PSNR): 3 = 5.99/15.80/28.23, auto5 = 6.67/17.56/28.06
-        (3 significantly better, p=.008/.023/.016), auto7 = 6.08/16.52/28.23 (not
-        significantly different from 3).  0 = off.
+        (seam mean / p90 / GT PSNR): "auto7" = 6.08/16.52/28.233 (default), 3 =
+        5.99/15.80/28.231, "auto5" = 6.67/17.56/28.062.  auto7 vs 3 is not significant on
+        any metric (p = 0.38..0.84); auto7 is the default for its best mean GT PSNR, the
+        smaller p90 spread and its clearly better result on curtain-stripe content.
+        0 = off.
     beta, beta_mode : adaptive patch-size acceptance threshold (default 150 on the
         per-pixel mean squared error scale).
     skip_ghosts : skip the ghost-removal stage (measured to be within noise on the data
