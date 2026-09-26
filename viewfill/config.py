@@ -60,9 +60,12 @@ class FillConfig:
     # at the filled/background junction).  int n = n iterations of a 3x3 max filter
     # everywhere; "auto" = widen only where |dx gradient| demands it (no unnecessary
     # foreground inflation).  Measured (scale -44.8): seam 10.27 -> 7.58, p90 39.1 -> 26.0,
-    # GT 20.39 -> 20.46 dB with "auto"; 3 gives the smallest seam (4.49 / 11.2) but inflates
-    # the foreground by 3 px and costs 0.03 dB.  See 复现方案.md 9.10.
-    depth_dilate: object = "auto"
+    # Measured (scale -44.8): 0 -> seam 10.27/p90 39.1/cracks 12682; 2 (default) ->
+    # 7.90/22.3/9526; 3 -> 4.49/11.2/9294 but the foreground is inflated by 3 px; "auto"
+    # (demand-driven, best GT 20.46 dB) -> 7.50/21.9/10815 but leaves visible thin lines
+    # along the silhouette.  Uniform 2 is the best visual/geometric compromise.
+    # See 复现方案.md 9.10.
+    depth_dilate: object = 2
     # Reject source patches that straddle a depth edge (patch inverse-depth std above this
     # tolerance, on the 0..255 depth scale).  Such a patch carries the dark silhouette edge
     # or its shadow into the hole, which is what shows up as a ghost contour along the seam.

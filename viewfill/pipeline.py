@@ -72,6 +72,9 @@ def _prep_depth(depth255, cfg):
         k3 = np.ones((3, 3), np.uint8)
         gx = cv2.Sobel(d, cv2.CV_32F, 1, 0, ksize=3) / 8.0     # per-pixel dD/dx
         need = np.ceil(np.abs(gx) * abs(float(cfg.scale)) / 255.0)
+        # smooth the demand map: applying the widening with a hard boundary between the
+        # widened and untouched disparity would itself create new thin holes there
+        need = cv2.dilate(need.astype(np.float32), np.ones((3, 3), np.uint8))
         out = d
         for i in range(1, int(min(4.0, need.max() if need.size else 0)) + 1):
             out = np.where(need >= i, cv2.dilate(out, k3), out)
