@@ -270,6 +270,28 @@ def main():
     check("the seam is not systematically brighter or darker than the background",
           abs(seam_hhf) < 30.0, f"seam mean {seam_hhf:.2f} gray levels (report only)")
 
+    # ------------------------------- 8) interface completeness and default consistency
+    import dataclasses
+    import inspect
+    sig = inspect.signature(fill_holes)
+    fields = {f.name for f in dataclasses.fields(FillConfig)}
+    internal = {"repair_warp", "repair_threshold_pct", "dev_threshold_gray", "ablate"}
+    missing = sorted(fields - set(sig.parameters) - internal)
+    check("fill_holes exposes every applicable FillConfig knob",
+          not missing,
+          (f"missing {missing}" if missing else
+           f"{len(sig.parameters)} parameters, {len(fields)} config fields, "
+           f"{len(internal)} intentionally internal"))
+    kw = {k: v.default for k, v in sig.parameters.items()
+          if v.default is not inspect.Parameter.empty and k != "return_info"}
+    check("passing every documented default explicitly changes nothing",
+          np.array_equal(fill_holes(rgb, inv, **kw), fixed),
+          f"{len(kw)} keyword defaults round-tripped bit-exactly")
+    check("return_info exposes the documented result keys",
+          {"image", "filled", "warped", "hole_mask", "remaining", "crack", "oofa",
+           "disocc", "filled_depth", "warped_depth", "stats"} <= set(info),
+          f"{len(info)} keys")
+
     n_fail = sum(1 for _, ok, _ in results if not ok)
     print(f"\n{len(results) - n_fail}/{len(results)} checks passed   "
           f"(total {time.time()-t0:.1f}s)")
