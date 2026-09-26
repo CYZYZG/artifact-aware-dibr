@@ -58,18 +58,17 @@ class FillConfig:
     # Widen the splat footprint before warping so that a fast disparity ramp at a
     # silhouette does not leave a 1-2 px crack network (the main source of the visible seam
     # at the filled/background junction).  int n = n iterations of a 3x3 max filter
-    # everywhere; "auto"/"auto5"/"auto7" widen only where the disparity gradient demands it,
-    # after smoothing the demand map with a w x w max filter so that the boundary between
-    # widened and untouched disparity does not create new thin holes.
-    # Measured over 6 frames of MSR Ballet cam6 -> cam7 (seam mean / p90 / crack px /
-    # GT PSNR / GT SSIM):
-    #   0     10.27 / 39.12 / 12682 / 20.39 / 0.7100   (frame f000 only)
-    #   2      7.69 / 21.65 /  9351 / 20.35 / 0.7103
-    #   3      5.52 / 13.99 /  9133 / 20.32 / 0.7108
-    #   auto5  5.21 / 13.14 / 10182 / 20.36 / 0.7112
-    #   auto7  4.99 / 12.42 /  9936 / 20.34 / 0.7114  <- default (best seam + best SSIM)
-    # See 复现方案.md 9.10.
-    depth_dilate: object = "auto7"
+    # everywhere; "auto"/"auto5"/"auto7" instead widen only where the disparity gradient
+    # demands it, with the demand map smoothed by a w x w max filter first.
+    # PAIRED test over 8 frames of cam6 -> cam7 with the CALIBRATED displacement field
+    # (seam mean / per-sample best / p90 / GT PSNR):
+    #   3      5.989 +- 0.756 (best 6/8)  15.796  28.231   <- default
+    #   auto5  6.673 +- 0.884 (best 0/8)  17.560  28.062   (3 significantly better, p=.008)
+    #   auto7  6.080 +- 0.769 (best 2/8)  16.521  28.233   (3 vs auto7: n.s., p=.52)
+    # Note: with the simplified 1D flow auto7 looked better; with the calibrated geometry
+    # (GT 28 dB vs 20 dB) uniform 3 wins.  See 复现方案.md 9.11.
+
+    depth_dilate: object = 3
     # Reject source patches that straddle a depth edge (patch inverse-depth std above this
     # tolerance, on the 0..255 depth scale).  Such a patch carries the dark silhouette edge
     # or its shadow into the hole, which is what shows up as a ghost contour along the seam.
