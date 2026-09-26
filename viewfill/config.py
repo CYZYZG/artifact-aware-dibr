@@ -55,11 +55,19 @@ class FillConfig:
     # On the seam metric (jump at the filled/background junction) none of them beats hhf,
     # so hhf stays the default; the real lever is depth_dilate below (see 复现方案.md 9.7).
     crack_fill: str = "hhf"
-    # Pre-dilate the disparity before warping (iterations of a 3x3 max filter).  A gradual
-    # depth ramp at a silhouette maps adjacent source columns more than 1 px apart, which
-    # produces the 1-2 px crack network; widening the splat footprint closes it.  Measured:
-    # cracks 12682 -> 9914, seam p90 39.0 -> 31.8, GT PSNR 20.40 -> 20.43 dB (1 iteration).
-    depth_dilate: int = 1
+    # Widen the splat footprint before warping so that a fast disparity ramp at a
+    # silhouette does not leave a 1-2 px crack network (the main source of the visible seam
+    # at the filled/background junction).  int n = n iterations of a 3x3 max filter
+    # everywhere; "auto" = widen only where |dx gradient| demands it (no unnecessary
+    # foreground inflation).  Measured (scale -44.8): seam 10.27 -> 7.58, p90 39.1 -> 26.0,
+    # GT 20.39 -> 20.46 dB with "auto"; 3 gives the smallest seam (4.49 / 11.2) but inflates
+    # the foreground by 3 px and costs 0.03 dB.  See 复现方案.md 9.10.
+    depth_dilate: object = "auto"
+    # Reject source patches that straddle a depth edge (patch inverse-depth std above this
+    # tolerance, on the 0..255 depth scale).  Such a patch carries the dark silhouette edge
+    # or its shadow into the hole, which is what shows up as a ghost contour along the seam.
+    # 0 = off.  See 复现方案.md 9.10 for the measured effect.
+    src_depth_tol: float = 0.0
 
     # ---- misc --------------------------------------------------------------
     oofa_frac: float = 0.5
@@ -69,7 +77,8 @@ class FillConfig:
     def patch_params(self) -> dict:
         return dict(n_window=self.n_window, sizes=tuple(self.sizes), beta=self.beta,
                     beta_mode=self.beta_mode, max_iter=self.max_iter, splat=self.splat,
-                    bg_template=self.bg_template, require_full_bg=self.require_full_bg)
+                    bg_template=self.bg_template, require_full_bg=self.require_full_bg,
+                    src_depth_tol=self.src_depth_tol)
 
     def as_dict(self) -> dict:
         d = dict(self.__dict__)

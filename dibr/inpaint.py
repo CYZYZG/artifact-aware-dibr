@@ -122,7 +122,7 @@ SEARCH_DIAG = {"nv0": 0, "region": 0, "nonfinite": 0, "calls": 0, "ok_empty": 0}
 def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=69,
                  sizes=(9, 7, 5, 3), beta=35.0, bg_only=True, beta_mode="mean",
                  require_full_valid=False, D_w=None, bg_template=False,
-                 require_full_bg=False):
+                 require_full_bg=False, src_depth_tol=0.0):
     """Best source patch in the reference image.  Returns (qy, qx, k, cost, n_cand, used_bg).
 
     (py, px)  centre of the patch to be filled, in the SYNTHETIC view (template source)
@@ -191,6 +191,18 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
                                  (k, k), normalize=False,
                                  borderType=cv2.BORDER_CONSTANT)
             fc = (full >= k * k - 1e-6)[y0 - my0: y1 - my0, x0 - mx0: x1 - mx0]
+            cand &= fc[r: r + ssd.shape[0], r: r + ssd.shape[1]]
+        if src_depth_tol > 0:
+            # the source patch must sit inside ONE depth layer: a patch straddling a depth
+            # edge carries that edge (usually the dark silhouette or its shadow) into the
+            # hole, which is what leaves a ghost contour along the seam
+            dd = ref_depth[my0:my1, mx0:mx1].astype(np.float32)
+            mu = cv2.boxFilter(dd, -1, (k, k), normalize=True,
+                               borderType=cv2.BORDER_REPLICATE)
+            var = cv2.boxFilter(dd * dd, -1, (k, k), normalize=True,
+                                borderType=cv2.BORDER_REPLICATE) - mu * mu
+            flat = np.sqrt(np.maximum(var, 0.0)) <= src_depth_tol
+            fc = flat[y0 - my0: y1 - my0, x0 - mx0: x1 - mx0]
             cand &= fc[r: r + ssd.shape[0], r: r + ssd.shape[1]]
         if bg_only:
             ok = ok_crop[r: r + ssd.shape[0], r: r + ssd.shape[1]]
@@ -287,7 +299,8 @@ def fill_component(I_w, D_w, valid, lab, k, bbox, src_of, ref_color, ref_depth, 
                              params.get("beta_mode", "mean"),
                              require_full_valid=full_valid, D_w=D_w,
                              bg_template=params.get("bg_template", False),
-                             require_full_bg=params.get("require_full_bg", False))
+                             require_full_bg=params.get("require_full_bg", False),
+                             src_depth_tol=params.get("src_depth_tol", 0.0))
         if found is None:
             log["failed"] += 1
             log["fail_reason"] = "no patch"

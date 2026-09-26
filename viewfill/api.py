@@ -19,7 +19,7 @@ __all__ = ["fill_holes"]
 
 def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
                splat="sub", rule="zbuf", lam=5.0, se_orientation="auto",
-               crack_shape="none", crack_fill="hhf", depth_dilate=1,
+               crack_shape="none", crack_fill="hhf", depth_dilate="auto", src_depth_tol=0.0,
                beta=150.0, beta_mode="mean",
                skip_ghosts=False, fix_mode="copy", fg_side="gt",
                band_radius=2, alpha_sim=11.0, hhf_sigma=1.0, ksize=9,
@@ -48,10 +48,13 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
     crack_fill : "hhf" (default, the paper's isotropic hierarchical fill) | "linear"
         (interpolate across a thin crack) | "bg" (copy the background side).  Measured to be
         equivalent-to-worse on the seam metric, kept for experiments.
-    depth_dilate : iterations of a 3x3 max filter applied to the disparity before warping
-        (default 1).  A gradual depth ramp at a silhouette leaves a 1-2 px crack network;
-        widening the splat footprint closes it.  Measured at 1: cracks 12 682 -> 9 914,
-        seam jump p90 39.0 -> 31.8 gray levels, GT PSNR 20.40 -> 20.43 dB.  0 = off.
+    depth_dilate : widen the splat footprint before warping, so that a fast disparity ramp
+        at a silhouette does not leave a 1-2 px crack network - the main source of the
+        visible seam at the filled/background junction.  "auto" (default) widens only where
+        the disparity gradient demands it; an int n applies n iterations of a 3x3 max
+        filter everywhere.  Measured: seam 10.27 -> 7.58, p90 39.1 -> 26.0, GT PSNR
+        20.39 -> 20.46 dB ("auto"); 3 gives the smallest seam (4.49 / 11.2) at the cost of
+        inflating the foreground by 3 px.  0 = off.
     beta, beta_mode : adaptive patch-size acceptance threshold (default 150 on the
         per-pixel mean squared error scale).
     skip_ghosts : skip the ghost-removal stage (measured to be within noise on the data
@@ -93,7 +96,7 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
 
     cfg = FillConfig(scale=scale, splat=splat, rule=rule, lam=lam,
                      se_orientation=se_orientation, crack_shape=crack_shape,
-                     crack_fill=crack_fill, depth_dilate=depth_dilate,
+                     crack_fill=crack_fill, depth_dilate=depth_dilate, src_depth_tol=src_depth_tol,
                      beta=beta, beta_mode=beta_mode, skip_ghosts=skip_ghosts,
                      fix_mode=fix_mode, fg_side=fg_side, band_radius=band_radius,
                      alpha_sim=alpha_sim, hhf_sigma=hhf_sigma, ksize=ksize,

@@ -55,9 +55,28 @@ def auto_se_orientation(dx, dy=None):
 # warping
 # --------------------------------------------------------------------------- #
 def _prep_depth(depth255, cfg):
-    """Disparity map actually used for warping (cfgs.depth_dilate widens the footprint)."""
+    """Disparity map actually used for warping.
+
+    `cfg.depth_dilate` widens the splat footprint so that a fast disparity ramp at a
+    silhouette does not leave a 1-2 px crack network:
+      int n  - n iterations of a 3x3 max filter everywhere (simple, inflates the foreground
+               by n px everywhere)
+      "auto" - widen only where it is needed: a crack appears when the disparity changes by
+               more than one target pixel per source pixel, i.e. |d(dx)/dx| > 1, so each
+               pixel is dilated ceil(|dx gradient|) times and left alone elsewhere.  This
+               closes the same cracks while inflating the foreground far less.
+    """
     d = np.asarray(depth255, np.float32)
-    n = int(getattr(cfg, "depth_dilate", 0) or 0)
+    mode = getattr(cfg, "depth_dilate", 0)
+    if isinstance(mode, str) and mode.lower() == "auto":
+        k3 = np.ones((3, 3), np.uint8)
+        gx = cv2.Sobel(d, cv2.CV_32F, 1, 0, ksize=3) / 8.0     # per-pixel dD/dx
+        need = np.ceil(np.abs(gx) * abs(float(cfg.scale)) / 255.0)
+        out = d
+        for i in range(1, int(min(4.0, need.max() if need.size else 0)) + 1):
+            out = np.where(need >= i, cv2.dilate(out, k3), out)
+        return out
+    n = int(mode or 0)
     if n > 0:
         d = cv2.dilate(d, np.ones((3, 3), np.uint8), iterations=n)
     return d

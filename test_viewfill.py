@@ -263,11 +263,10 @@ def main():
     r_raw = fill_holes(rgb, inv, depth_dilate=0, return_info=True)
     seam_hhf, p90_hhf = _jump(info)
     seam_raw, p90_raw = _jump(r_raw)
-    check("depth pre-dilation reduces the crack network and the seam at the boundary",
-          int(info["crack"].sum()) < int(r_raw["crack"].sum()) and p90_raw < 100,
-          f"cracks {int(r_raw['crack'].sum())} -> {int(info['crack'].sum())} px, "
+    check("demand-driven splat widening reduces the seam at the boundary",
+          p90_hhf < 0.75 * p90_raw and seam_hhf <= seam_raw,
           f"seam mean {seam_raw:.2f} -> {seam_hhf:.2f}, p90 {p90_raw:.1f} -> {p90_hhf:.1f} "
-          f"gray levels")
+          f"gray levels (depth_dilate=0 -> auto)")
     check("the seam is not systematically brighter or darker than the background",
           abs(seam_hhf) < 30.0, f"seam mean {seam_hhf:.2f} gray levels (report only)")
 
