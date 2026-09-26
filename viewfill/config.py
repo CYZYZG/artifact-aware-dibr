@@ -72,27 +72,28 @@ class FillConfig:
 
 
     depth_dilate: object = "auto7"
+    struct_pen: float = 0.5
     # RECTIFIED INPUT: the disparity has no vertical component, so a hole pixel may only be
     # filled from the SAME row.  None = off (search the full 2D window, needed when the
     # displacement field has a y component); 0 = same row only; n = allow +-n rows.
     # Without it the matcher can slide a source patch vertically, which shifts horizontal
     # structures (rails/barres) up or down inside the filled band.
     epipolar: object = None
-    # MEASURED VERDICT - constraining this does NOT help here.  Error decomposition over
-    # 2 frames (all / filled-band / barre-row PSNR): None 28.40/24.66/24.64 (default,
-    # best), 2 = 28.33/24.30/24.29, 0 = 28.12/23.40/19.92 (much worse, even on the
-    # barre rows).  The row offsets are real (58.8 % of patches, p90 22.7 px) but mostly
-    # BENEFICIAL: in a disocclusion the correct background is occluded in the reference
-    # at that very row, so a same-row candidate pool cannot contain it - borrowing the
-    # same background surface from another row is usually right.  Use 0/1/2 only when
-    # the background behind your objects has strong horizontal structure (rails, fences)
-    # that must not shift vertically.
-
-    # Reject source patches that straddle a depth edge (patch inverse-depth std above this
-    # tolerance, on the 0..255 depth scale).  Such a patch carries the dark silhouette edge
-    # or its shadow into the hole, which is what shows up as a ghost contour along the seam.
-    # 0 = off.  See 复现方案.md 9.10 for the measured effect.
-    src_depth_tol: float = 0.0
+    # STRUCTURE-AWARE CROSS-ROW PENALTY: allow borrowing a source patch from another
+    # row, but charge struct_pen * w * dy^2, where dy is the row offset and w is the
+    # strength of horizontal structure around the hole (mean |d/dy gray| / 2, clipped
+    # to 3).  Vertically homogeneous background keeps w ~ 0, so good cross-row matches
+    # stay free; near a rail/fence the penalty stops the vertical shift.
+    # Measured (2 frames; all / filled-band / barre-row PSNR / SSIM, p90 and max row
+    # offset):
+    #   0.0  28.40/24.66/24.64  0.8543/0.7186/0.7085  p90 22.5  max 49   (off)
+    #   0.5  28.26/24.00/25.08  0.8523/0.6935/0.7130  p90  4.0  max 21  <- default
+    #   2.0  28.35/24.40/24.06  0.8535/0.7084/0.6664  p90  2.0  max 16
+    #   8.0  28.41/24.74/24.42  0.8550/0.7270/0.6974  p90  1.0  max  8
+    # 0.5 keeps the barre rows better than no penalty at all (25.08 vs 24.64) and caps
+    # the drift at 21 px, at a cost of 0.66 dB inside the filled band; 8 is the
+    # global-quality setting (better than off on all/band) with the tightest drift.
+    # Tune on your own content; 0 disables the term.
 
     # ---- misc --------------------------------------------------------------
     oofa_frac: float = 0.5
@@ -103,7 +104,8 @@ class FillConfig:
         return dict(n_window=self.n_window, sizes=tuple(self.sizes), beta=self.beta,
                     beta_mode=self.beta_mode, max_iter=self.max_iter, splat=self.splat,
                     bg_template=self.bg_template, require_full_bg=self.require_full_bg,
-                    src_depth_tol=self.src_depth_tol, epipolar=self.epipolar)
+                    src_depth_tol=self.src_depth_tol, epipolar=self.epipolar,
+                    struct_pen=self.struct_pen)
 
     def as_dict(self) -> dict:
         d = dict(self.__dict__)

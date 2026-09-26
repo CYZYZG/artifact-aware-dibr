@@ -19,7 +19,7 @@ __all__ = ["fill_holes"]
 
 def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
                splat="sub", rule="zbuf", lam=5.0, se_orientation="auto",
-               crack_shape="none", crack_fill="hhf", depth_dilate="auto7", epipolar=None, src_depth_tol=0.0,
+               crack_shape="none", crack_fill="hhf", depth_dilate="auto7", epipolar=None, struct_pen=0.5, src_depth_tol=0.0,
                beta=150.0, beta_mode="mean",
                skip_ghosts=False, fix_mode="copy", fg_side="gt",
                band_radius=2, alpha_sim=11.0, hhf_sigma=1.0, ksize=9,
@@ -48,6 +48,13 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
     crack_fill : "hhf" (default, the paper's isotropic hierarchical fill) | "linear"
         (interpolate across a thin crack) | "bg" (copy the background side).  Measured to be
         equivalent-to-worse on the seam metric, kept for experiments.
+    struct_pen : structure-aware cross-row penalty (default 0.5).  A source patch may
+        be borrowed from another row, but pays struct_pen * w * dy^2, where w grows
+        with the horizontal-structure strength around the hole.  On vertically
+        homogeneous background w ~ 0 (matches stay free); near a rail/fence the
+        penalty stops the vertical shift.  Measured (all / band / barre PSNR):
+        0 = 28.40/24.66/24.64 (drift p90 22.5, max 49), 0.5 = 28.26/24.00/25.08
+        (p90 4.0, max 21), 8 = 28.41/24.74/24.42 (p90 1.0, max 8).  0 disables.
     epipolar : escape hatch that does NOT help on this data.  Limit how many rows the
         matcher may deviate from the BACKPROJECTED row; None (default) = no limit.
         Measured (all / filled-band / barre-row PSNR): None 28.40/24.66/24.64,
@@ -91,7 +98,7 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
 
     cfg = FillConfig(scale=scale, splat=splat, rule=rule, lam=lam,
                      se_orientation=se_orientation, crack_shape=crack_shape,
-                     crack_fill=crack_fill, depth_dilate=depth_dilate, src_depth_tol=src_depth_tol,
+                     crack_fill=crack_fill, depth_dilate=depth_dilate, src_depth_tol=src_depth_tol, struct_pen=struct_pen,
                      epipolar=epipolar,
                      beta=beta, beta_mode=beta_mode, skip_ghosts=skip_ghosts,
                      fix_mode=fix_mode, fg_side=fg_side, band_radius=band_radius,

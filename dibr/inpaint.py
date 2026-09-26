@@ -122,7 +122,8 @@ SEARCH_DIAG = {"nv0": 0, "region": 0, "nonfinite": 0, "calls": 0, "ok_empty": 0}
 def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=69,
                  sizes=(9, 7, 5, 3), beta=35.0, bg_only=True, beta_mode="mean",
                  require_full_valid=False, D_w=None, bg_template=False,
-                 require_full_bg=False, src_depth_tol=0.0, epipolar=None):
+                 require_full_bg=False, src_depth_tol=0.0, epipolar=None,
+                 struct_pen=0.0):
     """Best source patch in the reference image.  Returns (qy, qx, k, cost, n_cand, used_bg).
 
     (py, px)  centre of the patch to be filled, in the SYNTHETIC view (template source)
@@ -159,6 +160,18 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
     mbg_f = (ref_depth[fy0:fy1, fx0:fx1] <= T).astype(np.float32) if require_full_bg else None
     used_bg = False
     SEARCH_DIAG["calls"] += 1
+    w_struct = 0.0
+    if struct_pen > 0:
+        # strength of HORIZONTAL structure around the hole: a big vertical gradient means a
+        # rail/fence crosses here and a vertically displaced source patch would break it.
+        # Vertically homogeneous background (curtain, floor) gives a small weight, so
+        # borrowing the same surface from another row stays free there.
+        gy0, gx0 = max(0, int(wy) - 7), max(0, int(wx) - 7)
+        win = np.asarray(ref_color[gy0:gy0 + 15, gx0:gx0 + 15], np.float32)
+        if win.size:
+            gr = (win if win.ndim == 2
+                  else 0.299 * win[..., 0] + 0.587 * win[..., 1] + 0.114 * win[..., 2])
+            w_struct = min(3.0, float(np.abs(np.diff(gr, axis=0)).mean()) / 2.0)
     for k in sizes:
         r = k // 2
         ys = np.arange(py - r, py + r + 1)
@@ -230,9 +243,14 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
             cand = cand & band
             if not cand.any():
                 cand = band.copy()
-        ssd_m = np.where(cand, ssd, np.inf)
+        if struct_pen > 0 and w_struct > 0:
+            rr = ((y0 + r + np.arange(ssd.shape[0], dtype=np.float32)) - float(wy))
+            ssd_sel = ssd + (struct_pen * w_struct) * (rr ** 2)[:, None] * (3.0 * nv)
+        else:
+            ssd_sel = ssd
+        ssd_m = np.where(cand, ssd_sel, np.inf)
         flat = int(np.argmin(ssd_m))
-        raw = float(ssd_m.ravel()[flat])
+        raw = float(ssd.ravel()[flat])
         if not np.isfinite(raw):
             SEARCH_DIAG["nonfinite"] += 1
             continue
@@ -317,7 +335,8 @@ def fill_component(I_w, D_w, valid, lab, k, bbox, src_of, ref_color, ref_depth, 
                              bg_template=params.get("bg_template", False),
                              require_full_bg=params.get("require_full_bg", False),
                              src_depth_tol=params.get("src_depth_tol", 0.0),
-                             epipolar=params.get("epipolar", None))
+                             epipolar=params.get("epipolar", None),
+                             struct_pen=params.get("struct_pen", 0.0))
         if found is None:
             log["failed"] += 1
             log["fail_reason"] = "no patch"
