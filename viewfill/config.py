@@ -77,7 +77,14 @@ class FillConfig:
     # displacement field has a y component); 0 = same row only; n = allow +-n rows.
     # Without it the matcher can slide a source patch vertically, which shifts horizontal
     # structures (rails/barres) up or down inside the filled band.
-    epipolar: object = None
+    epipolar: object = 2
+    # Measured on cam6->cam7 (3 frames, mean): None -> 58.8% of the patch choices come
+    # from a different row, row offset p90 22.7 px (max 63), which is what shifts
+    # horizontal structures (rails/barres) up or down inside the filled band.
+    # epipolar=2 -> p90 2.0 px at -0.02 dB GT; 1 -> 1.0 px at -0.09 dB;
+    # 0 -> 0 px at -0.21 dB.  The bound is relative to the BACKPROJECTED row (which
+    # already contains the flow dy), so 2 is safe for a 2D flow as well.
+
     # Reject source patches that straddle a depth edge (patch inverse-depth std above this
     # tolerance, on the 0..255 depth scale).  Such a patch carries the dark silhouette edge
     # or its shadow into the hole, which is what shows up as a ghost contour along the seam.

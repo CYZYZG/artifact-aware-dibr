@@ -19,7 +19,7 @@ __all__ = ["fill_holes"]
 
 def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
                splat="sub", rule="zbuf", lam=5.0, se_orientation="auto",
-               crack_shape="none", crack_fill="hhf", depth_dilate="auto7", epipolar=None, src_depth_tol=0.0,
+               crack_shape="none", crack_fill="hhf", depth_dilate="auto7", epipolar=2, src_depth_tol=0.0,
                beta=150.0, beta_mode="mean",
                skip_ghosts=False, fix_mode="copy", fg_side="gt",
                band_radius=2, alpha_sim=11.0, hhf_sigma=1.0, ksize=9,
@@ -48,31 +48,14 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
     crack_fill : "hhf" (default, the paper's isotropic hierarchical fill) | "linear"
         (interpolate across a thin crack) | "bg" (copy the background side).  Measured to be
         equivalent-to-worse on the seam metric, kept for experiments.
-    epipolar : RECTIFIED INPUT ONLY.  Set 0 (same row) or +-1/+2 rows.  In a rectified pair
-        the disparity has no vertical component, so a hole pixel may only be filled from the
-        same row; the default 2D search window has no such prior and, measured on cam6->cam7,
-        takes 55-61 % of its source patches from a DIFFERENT row (p90 offset 21-24 px, max
-        63 px), which is what shifts horizontal structures (rails/barres) up or down inside
-        the filled band.  epipolar=0 removes that completely (0 % off-row) at a cost of about
-        0.1-0.45 dB GT PSNR (smaller candidate pool).  None = off (needed when the
-        displacement field really has a y component).
-    depth_dilate : widen the splat footprint before warping, so that a fast disparity ramp
-        at a silhouette does not leave a 1-2 px crack network - the main source of the
-        visible seam at the filled/background junction.  An int n applies n iterations of a
-        3x3 max filter everywhere; "auto"/"auto5"/"auto7" widen only where the disparity
-        gradient demands it (demand map smoothed with a w x w max filter first).
-        Paired test over 8 frames of cam6 -> cam7 with the calibrated displacement field
-        (seam mean / p90 / GT PSNR): "auto7" = 6.08/16.52/28.233 (default), 3 =
-        5.99/15.80/28.231, "auto5" = 6.67/17.56/28.062.  auto7 vs 3 is not significant on
-        any metric (p = 0.38..0.84); auto7 is the default for its best mean GT PSNR, the
-        smaller p90 spread and its clearly better result on curtain-stripe content.
-        0 = off.
-    beta, beta_mode : adaptive patch-size acceptance threshold (default 150 on the
-        per-pixel mean squared error scale).
-    skip_ghosts : skip the ghost-removal stage (measured to be within noise on the data
-        this was developed on; harmless to leave on).
-    return_info : also return the full result dict (masks, per-stage stats, depth).
-    verbose : print the per-stage log.
+    epipolar : how many rows the matcher may deviate from the BACKPROJECTED row of the
+        hole pixel (which already contains the flow dy, so this is safe for a 2D flow
+        too).  Default 2.  Without this bound the 2D window lets a source patch slide
+        vertically: measured on cam6 -> cam7, 58.8 % of the patch choices came from a
+        different row with p90 offset 22.7 px (max 63 px) - that is what shifts
+        horizontal structures (rails/barres) up or down inside the filled band.
+        Bounding it: 2 -> p90 2.0 px at -0.02 dB GT, 1 -> 1.0 px at -0.09 dB,
+        0 -> 0 px at -0.21 dB.  None = no bound.
 
     Returns
     -------
