@@ -22,6 +22,7 @@ def build_config(a):
         se_orientation=a.orientation, crack_shape=a.crack_shape,
         band_radius=a.band_radius, alpha_sim=a.alpha_sim, fg_side=a.fg_side,
         fix_mode=a.fix_mode, skip_ghosts=a.skip_ghosts, n_window=a.n_window,
+        repair_warp=a.repair_warp,
         sizes=tuple(int(s) for s in a.sizes.split(",")), beta=a.beta,
         beta_mode=a.beta_mode, ablate=a.ablate)
 
@@ -44,6 +45,10 @@ def main(argv=None):
     # algorithm knobs
     ap.add_argument("--splat", default="sub", choices=["sub", "floor", "round"])
     ap.add_argument("--rule", default="zbuf", choices=["zbuf", "avg"])
+    ap.add_argument("--repair-warp", default="auto", choices=["auto", "always", "never"],
+                    help="when an externally supplied warp is detected to be broken "
+                         "(foreground replaced by background, e.g. inverse_ordering=True "
+                         "of warping.scatter_image), re-warp it with the Z-buffer")
     ap.add_argument("--lam", type=float, default=5.0)
     ap.add_argument("--se-len", type=int, default=4)
     ap.add_argument("--orientation", default="auto", choices=["auto", "v", "h", "both"])

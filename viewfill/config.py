@@ -12,6 +12,13 @@ class FillConfig:
     scale: float = -44.8
     splat: str = "sub"        # sub (sub-pixel 2-tap, few cracks) | floor | round (integer)
     rule: str = "zbuf"        # zbuf (nearest source wins) | avg (weight average)
+    # A warp produced elsewhere may have a broken collision rule (e.g. the provided
+    # warping.scatter_image with inverse_ordering=True lets the FAR sample win, which
+    # replaces foreground texture with background and looks like the person is cut).
+    # "auto" = detect it against a correct Z-buffer warp and repair when it matters.
+    repair_warp: str = "auto"     # auto | always | never
+    repair_threshold_pct: float = 1.0   # deviation (% of valid px) that triggers a repair
+    dev_threshold_gray: float = 40.0    # per-pixel difference considered damage
 
     # ---- cracks (paper II-A) ----------------------------------------------
     lam: float = 5.0          # crack threshold on the 0..255 depth scale

@@ -56,6 +56,21 @@ res["stats"]    # 各阶段指标（含 GT-free 回投一致性）
 
 注意：贪心填充顺序对输入微小扰动敏感（同一张图量化成 uint8 再喂回去，结果**质量等价**但非逐像素相同），验收请用"空洞清零 + 回投一致性 + 目视"，不要用逐像素比对。参数调节建议见 `复现方案.md` §9.4。
 
+### 前景被"吃掉一半"？先看 warp 的碰撞规则
+
+如果你自己 warp 出来的图前景人物像被切掉（背景穿透到人身上），根因通常是**前向 splat 没有深度测试**：
+`warping.scatter_image(inverse_ordering=True)` 会让**远处样本赢得碰撞**，把前景纹理替换成背景。
+实测与正确 Z-buffer warp 的逐像素偏差：`inverse_ordering=True` **1.88 %**（前景 0.54 %）、
+`inverse_ordering=False` **0.08 %**、本包 `viewfill`（亚像素 + Z-buffer）**0.11 %**。
+
+三种修法（任选）：
+1. 让 `viewfill` 自己 warp（`--splat sub --rule zbuf`，默认）——推荐；
+2. 用你自己的 warp 时把 `inverse_ordering` 设为 **`False`**；
+3. 已经有损坏的图：交给 `viewfill`，`--repair-warp auto`（默认）会检测偏差并自动用 Z-buffer 重 warp
+   （实测修复后与干净流程逐像素一致）；不想被改动就加 `--repair-warp never`。
+
+详细数据与验证见 `复现方案.md` §9.5。
+
 ## 流水线
 
 ```

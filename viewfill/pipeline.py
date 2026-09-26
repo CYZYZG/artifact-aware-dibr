@@ -67,6 +67,37 @@ def warp_view(rgb, depth255, cfg, dy=None):
 # --------------------------------------------------------------------------- #
 # main pipeline
 # --------------------------------------------------------------------------- #
+def check_warp_quality(I_w, hole, ref_rgb, depth255, disp, cfg):
+    """Compare an externally produced warp against a correct Z-buffer warp.
+
+    A forward splat without a depth test decides collisions by traversal order.  The
+    provided `warping.scatter_image` with `inverse_ordering=True`, for instance, lets the
+    FAR sample win, so foreground texture is replaced by background and the subject looks
+    cut up.  Measuring the deviation turns that into a number instead of silently filling
+    a damaged image.
+
+    Returns (metrics, correct_warp, correct_hole_mask).
+    """
+    dya = None if disp[1] is None else np.asarray(disp[1], np.float32)
+    I_c, _, hole_c, _ = _warp.forward_warp(
+        np.asarray(ref_rgb, np.float32), np.asarray(disp[0], np.float32), dya,
+        z=np.asarray(depth255, np.float32), hole_depth=-1.0, rule="zbuf", splat=cfg.splat)
+    m = ~np.asarray(hole, bool)
+    if not m.any():
+        return dict(warp_deviation_pct=0.0, fg_deviation_pct=0.0,
+                    warp_deviation_px=0, fg_deviation_px=0), I_c, hole_c
+    dev = (np.abs(np.asarray(I_w, np.float32) - I_c).max(axis=2)
+           > cfg.dev_threshold_gray) & m
+    fg = (np.asarray(depth255, np.float32) / 255.0) > 0.6
+    mfg = m & fg
+    q = dict(warp_deviation_px=int(dev.sum()),
+             warp_deviation_pct=round(float(dev.sum() / max(1, int(m.sum())) * 100), 3),
+             fg_deviation_px=int((dev & fg).sum()),
+             fg_deviation_pct=round(float((dev & fg).sum() / max(1, int(mfg.sum())) * 100),
+                                    3))
+    return q, I_c, hole_c
+
+
 def _run_pipeline(I_w, D_w, hole, ref_rgb, ref_depth255, disp, cfg, log=None):
     """cracks -> ghosts -> classification + exemplar filling.  Mutates/returns arrays."""
     stats = {}
@@ -153,25 +184,53 @@ def fill_warped(warped_rgb, hole_mask, warped_depth, ref_rgb, ref_depth,
     ref_depth    : HxW, reference inverse depth (0..1 or 0..255)
     disp         : optional (dx, dy) displacement field that produced the warp; when
                    omitted it is rebuilt from `ref_depth` and cfg.scale
+
+    cfg.repair_warp decides what happens when the supplied warp is detected to be broken
+    (foreground texture replaced by background): "auto" repairs it when the deviation
+    exceeds cfg.repair_threshold_pct, "always" always re-warps with the Z-buffer,
+    "never" keeps the supplied image.
     """
     cfg = cfg or FillConfig()
     I_w = np.asarray(warped_rgb, np.float32)
     hole = np.asarray(hole_mask, bool)
     P_ref = depth_to_scale255(ref_depth)
+    ref_rgb = np.asarray(ref_rgb, np.float32)
     if disp is None:
         dx = disparity_from_depth(P_ref, cfg.scale)
         disp = (dx, None)
-    D_w = np.asarray(warped_depth, np.float32).copy()
-    if D_w.max() <= 1.0 + 1e-6:
-        D_w = D_w * 255.0
-    D_w[hole] = -1.0
+
+    mode = (cfg.repair_warp or "never").lower()
+    q, I_c, hole_c = check_warp_quality(I_w, hole, ref_rgb, P_ref, disp, cfg)
+    repaired = False
+    if mode == "always" or (mode == "auto"
+                            and q["warp_deviation_pct"] > cfg.repair_threshold_pct):
+        if log:
+            log(f"  [warp check] supplied warp deviates from a correct Z-buffer warp on "
+                f"{q['warp_deviation_pct']:.2f}% of the valid pixels "
+                f"(foreground {q['fg_deviation_pct']:.2f}%) -> re-warping with the "
+                f"Z-buffer")
+        I_w, hole, D_w = I_c, hole_c, None
+        repaired = True
+    else:
+        if log:
+            log(f"  [warp check] deviation {q['warp_deviation_pct']:.2f}% of valid px "
+                f"(foreground {q['fg_deviation_pct']:.2f}%) -> keeping the supplied warp")
+        D_w = np.asarray(warped_depth, np.float32).copy()
+        if D_w.max() <= 1.0 + 1e-6:
+            D_w = D_w * 255.0
+        D_w[hole] = -1.0
+    if repaired:
+        _, D_w, _, _ = _warp.forward_warp(
+            ref_rgb, np.asarray(disp[0], np.float32),
+            None if disp[1] is None else np.asarray(disp[1], np.float32),
+            z=P_ref, hole_depth=-1.0, rule="zbuf", splat=cfg.splat)
     if log:
         log(f"  input: {int(hole.sum())} hole px ({hole.mean()*100:.2f}%)")
-    out = _run_pipeline(I_w, D_w, hole, np.asarray(ref_rgb, np.float32), P_ref, disp,
-                        cfg, log=log)
+    out = _run_pipeline(I_w, D_w, hole, ref_rgb, P_ref, disp, cfg, log=log)
     out["hole_input"] = hole
     out["disp"] = disp
-    return _finish(out, cfg, ref_rgb=ref_rgb)
+    return _finish(out, cfg, ref_rgb=ref_rgb,
+                   extra=dict(warp_repaired=bool(repaired), **q))
 
 
 def warp_and_fill(rgb, inv_depth, cfg=None, reference=None, log=None):

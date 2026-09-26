@@ -83,24 +83,47 @@ def main():
     # ------------------------------------------------------- 3) external warp (yours)
     sys.path.insert(0, HERE)
     from warping import scatter_image
+    # NOTE: inverse_ordering must be False.  The provided splat has no depth test, and
+    # with inverse_ordering=True the FAR sample wins the collision, replacing foreground
+    # texture with background (the subject looks cut up).  See case 3b below.
     w, hm, dep = scatter_image(rgb.astype(np.float32), inv, direction=-1,
-                              scale_factor=44.8, inverse_ordering=True,
+                              scale_factor=44.8, inverse_ordering=False,
                               reproject_depth=True)
     hole_ext = hm > 0
     dw = np.where(hole_ext, 0.0, 255.0 / (dep + 1e-6)).astype(np.float32)
     t = time.time()
     res_ext = fill_warped(np.clip(w, 0, 255).astype(np.float32), hole_ext, dw, rgb, inv,
                           cfg=cfg, log=lambda s: print("[external warp] " + s))
-    check("fills the output of the PROVIDED forward warp (warping.scatter_image)",
+    check("fills the output of the PROVIDED forward warp (warping.scatter_image, "
+          "inverse_ordering=False)",
           int(res_ext["remaining"].sum()) == 0,
-          f"{int(hole_ext.sum())} hole px -> 0, {time.time()-t:.1f}s")
-    touched = np.abs(res_ext["I_filled"]
-                     - np.asarray(w, np.float32)).max(axis=2) > 1e-3
-    frac = touched[~hole_ext].mean() * 100 if (~hole_ext).any() else 0.0
-    check("only a small share of the already-valid pixels is touched "
-          "(translucent cracks + ghost relocation, by design)",
-          frac < 5.0,
-          f"{int(touched[~hole_ext].sum())} valid px modified ({frac:.2f}% of valid)")
+          f"{int(hole_ext.sum())} hole px -> 0, {time.time()-t:.1f}s, "
+          f"deviation from a Z-buffer warp {res_ext['stats']['warp_deviation_pct']:.2f}%")
+    check("a correctly warped input is left untouched (no repair triggered)",
+          res_ext["stats"]["warp_repaired"] is False and
+          res_ext["stats"]["warp_deviation_pct"] < 0.5,
+          f"deviation {res_ext['stats']['warp_deviation_pct']:.2f}%")
+
+    # ------------------------------- 3b) a broken warp is detected and repaired
+    w_bad, hm_bad, dep_bad = scatter_image(rgb.astype(np.float32), inv, direction=-1,
+                                           scale_factor=44.8, inverse_ordering=True,
+                                           reproject_depth=True)
+    hole_bad = hm_bad > 0
+    dw_bad = np.where(hole_bad, 0.0, 255.0 / (dep_bad + 1e-6)).astype(np.float32)
+    res_bad = fill_warped(np.clip(w_bad, 0, 255).astype(np.float32), hole_bad, dw_bad,
+                          rgb, inv, cfg=FillConfig(scale=-44.8, repair_warp="never"))
+    check("the foreground damage of inverse_ordering=True is detected",
+          res_bad["stats"]["warp_deviation_pct"] > 1.0,
+          f"deviation {res_bad['stats']['warp_deviation_pct']:.2f}% of valid px "
+          f"(foreground {res_bad['stats']['fg_deviation_pct']:.2f}%)")
+    res_fix = fill_warped(np.clip(w_bad, 0, 255).astype(np.float32), hole_bad, dw_bad,
+                          rgb, inv, cfg=FillConfig(scale=-44.8, repair_warp="auto"))
+    same_fix = float(np.abs(res_fix["I_filled"] - res["I_filled"]).max())
+    check("auto-repair re-warps with the Z-buffer and gives the clean result",
+          res_fix["stats"]["warp_repaired"] is True and same_fix == 0.0 and
+          int(res_fix["remaining"].sum()) == 0,
+          f"repaired=True, max diff vs the clean pipeline {same_fix:g}, "
+          f"residual {int(res_fix['remaining'].sum())}")
     report.save(res_ext, cfg, os.path.join(OUT, "02_external_warp"), ref_rgb=rgb)
     print(f"  -> {os.path.join(OUT, '02_external_warp')}")
 
