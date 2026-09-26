@@ -308,3 +308,103 @@ def bboxes(lab, n):
         out[k] = (max(0, s[0].start), min(lab.shape[0], s[0].stop),
                   max(0, s[1].start), min(lab.shape[1], s[1].stop))
     return out
+
+
+def hole_threshold(D_w, lab, k, alpha=0.10):
+    """T_O = trimmed mean (alpha) of the valid disparity along hole component k's boundary."""
+    import scipy.ndimage as ndi
+
+    from .ghosts import trimmed_mean
+    m = lab == k
+    b = ndi.binary_dilation(m, np.ones((3, 3), bool)) & ~m
+    v = np.asarray(D_w)[b]
+    v = v[v >= 0]
+    return trimmed_mean(v, alpha) if v.size else 0.0
+
+
+def repair_src_of(src_of, valid):
+    """Fill the -1 entries of a backward map by nearest-neighbour propagation.
+
+    Pixels that were not produced by the warp itself (e.g. crack-filled by HHF) have no
+    backward mapping; their neighbours do, so copying the nearest valid entry plus the
+    pixel offset is a good approximation of where that content came from.
+    """
+    import scipy.ndimage as ndi
+    bad = src_of < 0
+    if not bad.any() or not (~bad).any():
+        return src_of
+    h, w = src_of.shape
+    _, idx = ndi.distance_transform_edt(bad, return_indices=True)
+    near = src_of[idx[0], idx[1]]
+    off = (np.arange(h)[:, None] - idx[0]) * w + (np.arange(w)[None, :] - idx[1])
+    return np.where(bad, near + off, src_of).astype(np.int32)
+
+
+def fill_all(I_w, D_w, hole, ref_color, ref_depth, disp, src_of,
+             direction=-1, params=None, ablate="none", oofa_frac=0.5, progress=None):
+    """Fill every hole component of a warped view.  This is the Step 4-7 entry point.
+
+    Parameters
+    ----------
+    I_w, D_w : target view; D_w is a nearer-is-larger scalar map with holes at -1
+    hole     : (H, W) bool, True where the target view has no content
+    ref_color, ref_depth : the reference image and its depth (the patch source)
+    disp     : (dx, dy) displacement field in the SOURCE domain that produced the warp
+    src_of   : backward map (flat index into the reference) or None to derive it
+    params   : dict(n_window, sizes, beta, beta_mode, max_iter)
+
+    Returns a dict with the filled arrays, the classification, and per-component logs.
+    """
+    from . import holes as _holes
+    defaults = dict(n_window=69, sizes=(9, 7, 5, 3), beta=150.0, beta_mode="mean",
+                    max_iter=400000)
+    defaults.update(params or {})
+    params = defaults
+    H, W = hole.shape
+    valid = ~np.asarray(hole, bool)
+    oofa, disocc, lab, comp_type, info = _holes.classify(hole, direction, oofa_frac)
+    n_comp = int(lab.max()) + 1
+    areas = np.bincount(lab.ravel(), minlength=n_comp)
+    order = [int(k) for k in np.argsort(-areas[1:]) + 1 if areas[k] > 0]
+
+    conf = valid.astype(np.float32)
+    E, E_range = depth_term(D_w, valid)
+    grads = image_gradients(I_w)
+    if src_of is None:
+        from .ghosts import backward_index
+        src_of = backward_index((H, W), np.asarray(disp[0], np.float32),
+                                None if disp[1] is None else np.asarray(disp[1], np.float32),
+                                z=np.where(valid, np.maximum(D_w, 0), 0.0),
+                                splat=params.get("splat", "sub"))
+    src_of = repair_src_of(np.asarray(src_of, np.int32), valid)
+
+    bb = bboxes(lab, n_comp)
+    logs = {}
+    for i, k in enumerate(order):
+        T = hole_threshold(D_w, lab, k)
+        logs[k] = fill_component(I_w, D_w, valid, lab, k, bb[k], src_of, ref_color,
+                                 ref_depth, T, comp_type[k], conf, E, grads, params,
+                                 ablate=ablate)
+        if progress is not None and (i + 1) % 50 == 0:
+            progress(i + 1, len(order), logs)
+    remaining = ~valid
+    sizes_used = {}
+    for l in logs.values():
+        for kk, v in l["sizes"].items():
+            sizes_used[kk] = sizes_used.get(kk, 0) + v
+    costs = np.array([c for l in logs.values() for c in l["costs"]], np.float64)
+    stats = dict(
+        holes_before=int(hole.sum()), holes_after=int(remaining.sum()),
+        filled_px=int(hole.sum()) - int(remaining.sum()),
+        oofa_px=info["oofa_px"], disocc_px=info["disocc_px"],
+        oofa_components=info["oofa_components"], disocc_components=info["disocc_components"],
+        components=len(order), iterations=int(sum(l["iterations"] for l in logs.values())),
+        failed_components=int(sum(1 for l in logs.values() if l["failed"])),
+        E_lo=E_range[0], E_hi=E_range[1],
+        patch_sizes=sizes_used,
+        cost_median=float(np.median(costs)) if costs.size else float("nan"),
+        cost_frac_below_beta=float((costs <= params["beta"]).mean()) if costs.size else 0.0,
+    )
+    return dict(I_filled=I_w, D_filled=D_w, remaining=remaining, oofa=oofa, disocc=disocc,
+                lab=lab, comp_type=comp_type, logs=logs, stats=stats, valid=valid,
+                src_of=src_of)

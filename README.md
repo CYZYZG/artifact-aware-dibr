@@ -1,4 +1,4 @@
-# An Artifact-Type Aware DIBR Method for View Synthesis —— 复现
+# An Artifact-Type Aware DIBR Method for View Synthesis —— 复现 + 通用填洞工具
 
 论文：A. Q. de Oliveira, M. Walter, C. R. Jung, *An Artifact-type Aware DIBR Method for
 View Synthesis*, IEEE Signal Processing Letters, 2018, DOI 10.1109/LSP.2018.2870342。
@@ -6,6 +6,51 @@ View Synthesis*, IEEE Signal Processing Letters, 2018, DOI 10.1109/LSP.2018.2870
 
 **详细方案、逐步规格、验收标准、25 条论文歧义的处理记录、全部实测结论 →
 [复现方案.md](复现方案.md)**（先读这一份）。
+
+## 两个入口：复现实验 vs 通用工具
+
+| | 用途 | 入口 |
+| --- | --- | --- |
+| `dibr/` + `step*.py` + `run_all.py` | 论文复现实验（绑定 MSR Ballet 官方标定 + 真实相邻相机做真值评价，40 次运行 89 项断言） | `复现方案.md` §3 |
+| **`viewfill/`** | **通用填洞：给"原图 + 逆深度"或"任意 warp 出来的带空洞图"，输出无空洞结果** | 本 README 下方，或 `复现方案.md` §9 |
+
+## 通用填洞工具（2D→3D 流程）
+
+约定：`视差(px) = 逆深度(0..1) × scale`，默认 `scale=-44.8`（内容左移、OOFA 在右边缘）。
+
+```powershell
+# A) 自带 warp：原图 + 逆深度 -> warp -> 填洞
+python -m viewfill --image color.jpg --depth depth.png --scale -44.8 --out out\run1
+
+# B) 只填已有 warp（你自己的 warp 代码产出的图/掩码/深度）
+python -m viewfill --warped warped.png --hole hole.png --depth-warped warped_depth.png `
+                   --image color.jpg --depth depth.png --out out\run1
+
+# 可选：给真值就顺便算 PSNR/SSIM
+python -m viewfill --image color.jpg --depth depth.png --scale -44.8 --gt gt.png --out out\run1
+```
+
+```python
+from viewfill import FillConfig, warp_and_fill, fill_warped
+
+res = warp_and_fill(rgb, inv_depth, FillConfig(scale=-44.8))        # 自带 warp
+res = fill_warped(warped, hole_mask, warped_depth, rgb, inv_depth)  # 只填
+res["filled"]   # HxWx3 uint8，已无空洞
+res["stats"]    # 各阶段指标（含 GT-free 回投一致性）
+```
+
+**实测（`python test_viewfill.py`，15/15 通过，你的数据 cam6-f000）**
+
+| 项 | 结果 |
+| --- | --- |
+| warp | scale −44.8 → 空洞 4.55 %（35 812 px），OOFA 在右边缘 |
+| 填充 | 27 709 px → **0 px**，9.4 s（1024×768） |
+| 喂入你提供的 `warping.scatter_image` 输出 | 35 812 px → **0 px**，9.2 s |
+| GT-free 回投一致性 | 28.50 → **35.15 dB** |
+| scale −20 / −44.8 / −80 | 空洞 1.84 / 4.55 / 8.15 %，三档全部填满 |
+| 真实相机压力测试（Ballet cam6→cam7，纯 1D） | 整帧 18.14 → **20.39 dB**，SSIM 0.677 → 0.710 |
+
+注意：贪心填充顺序对输入微小扰动敏感（同一张图量化成 uint8 再喂回去，结果**质量等价**但非逐像素相同），验收请用"空洞清零 + 回投一致性 + 目视"，不要用逐像素比对。参数调节建议见 `复现方案.md` §9.4。
 
 ## 流水线
 

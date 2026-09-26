@@ -76,50 +76,33 @@ def main():
     dx, dy, _, _, _ = calib.displacement_field(cams, args.ref_cam, args.dst_cam, ref_depth)
     direction = 1 if float(np.median(dx)) > 0 else -1
 
-    # ---------------- Step 4: classify ----------------
-    oofa, disocc, lab, comp_type, info = holes.classify(hole, direction)
-    n_comp = int(lab.max()) + 1
-    areas = np.bincount(lab.ravel(), minlength=n_comp)
-    order = [k for k in np.argsort(-areas[1:]) + 1 if areas[k] > 0]
-    if args.max_components:
-        order = order[:args.max_components]
-
-    # ---------------- Steps 5-7: fill ----------------
-    valid = ~hole
-    conf = valid.astype(np.float32)
-    E, E_range = inpaint.depth_term(D_w, valid)
-    grads = inpaint.image_gradients(I_w)
-    # backward map target -> reference, with the unknown (crack-filled) pixels filled in
-    src_of = ghosts.backward_index((h, w), dx, dy, z=np.where(valid, D_w, 0.0))
-    bad = src_of < 0
-    if bad.any() and (~bad).any():
-        import scipy.ndimage as ndi
-        _, idx = ndi.distance_transform_edt(bad, return_indices=True)
-        near = src_of[idx[0], idx[1]]
-        off = (np.arange(h)[:, None] - idx[0]) * w + (np.arange(w)[None, :] - idx[1])
-        src_of = np.where(bad, near + off, src_of).astype(np.int32)
-
+    # ---------------- Steps 4-7: classify, prioritise, match, fill ----------------
     params = dict(n_window=args.n_window,
                   sizes=tuple(int(s) for s in args.sizes.split(",")),
                   beta=args.beta, beta_mode=args.beta_mode, max_iter=args.max_iter)
-    bb = inpaint.bboxes(lab, n_comp)
-    logs = {}
     t1 = time.time()
-    for i, k in enumerate(order):
-        T = _threshold(D_w, lab, k)
-        logs[k] = inpaint.fill_component(I_w, D_w, valid, lab, k, bb[k], src_of,
-                                         ref_color, ref_depth, T, comp_type[k],
-                                         conf, E, grads, params, ablate=args.ablate)
-        if (i + 1) % 100 == 0 or i + 1 == len(order):
-            done = sum(l["iterations"] for l in logs.values())
-            left = sum(l["rem_left"] for l in logs.values())
-            print(f"  [{i+1}/{len(order)}] components, {done} patch iterations, "
-                  f"{left} px left in touched comps, elapsed {time.time()-t1:.1f}s",
-                  flush=True)
-    t2 = time.time()
 
-    # `valid` was updated in place as content was filled: whatever is still invalid is a hole
-    remaining = ~valid
+    def _progress(i, n, logs):
+        done = sum(l["iterations"] for l in logs.values())
+        left = sum(l["rem_left"] for l in logs.values())
+        print(f"  [{i}/{n}] components, {done} patch iterations, "
+              f"{left} px left in touched comps, elapsed {time.time()-t1:.1f}s", flush=True)
+
+    res = inpaint.fill_all(I_w, D_w, hole, ref_color, ref_depth, (dx, dy),
+                           src_of=None, direction=direction, params=params,
+                           ablate=args.ablate, progress=_progress)
+    t2 = time.time()
+    remaining = res["remaining"]
+    I_w = res["I_filled"]
+    D_w = res["D_filled"]
+    oofa, disocc, lab, comp_type = res["oofa"], res["disocc"], res["lab"], res["comp_type"]
+    info = dict(oofa_px=res["stats"]["oofa_px"], disocc_px=res["stats"]["disocc_px"],
+                oofa_components=res["stats"]["oofa_components"],
+                disocc_components=res["stats"]["disocc_components"])
+    logs = res["logs"]
+    if args.max_components:
+        pass          # already processed; kept for CLI compatibility
+    E_range = (res["stats"]["E_lo"], res["stats"]["E_hi"])
 
     # ---------------- stats ----------------
     stats = dict(tag=tag, ablate=args.ablate, n_window=args.n_window,
