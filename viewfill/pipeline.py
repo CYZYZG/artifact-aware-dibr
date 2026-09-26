@@ -54,12 +54,27 @@ def auto_se_orientation(dx, dy=None):
 # --------------------------------------------------------------------------- #
 # warping
 # --------------------------------------------------------------------------- #
+def _prep_depth(depth255, cfg):
+    """Disparity map actually used for warping (cfgs.depth_dilate widens the footprint)."""
+    d = np.asarray(depth255, np.float32)
+    n = int(getattr(cfg, "depth_dilate", 0) or 0)
+    if n > 0:
+        d = cv2.dilate(d, np.ones((3, 3), np.uint8), iterations=n)
+    return d
+
+
 def warp_view(rgb, depth255, cfg, dy=None):
-    """Forward warp; returns (I_w, D_w, hole_mask, weight, dx, dy)."""
-    dx = disparity_from_depth(depth255, cfg.scale)
+    """Forward warp; returns (I_w, D_w, hole_mask, weight, dx, dy).
+
+    `cfg.depth_dilate` pre-dilates the disparity (3x3 max filter, that many iterations) so
+    that a gradual depth ramp at a silhouette does not leave a 1-2 px crack network: it
+    widens the splat footprint by that many pixels.
+    """
+    d = _prep_depth(depth255, cfg)
+    dx = disparity_from_depth(d, cfg.scale)
     dya = None if dy is None else np.asarray(dy, np.float32)
     I_w, D_w, hole, weight = _warp.forward_warp(
-        np.asarray(rgb, np.float32), dx, dya, z=np.asarray(depth255, np.float32),
+        np.asarray(rgb, np.float32), dx, dya, z=d,
         hole_depth=-1.0, rule=cfg.rule, splat=cfg.splat)
     return I_w, D_w, hole, weight, dx, dya
 
@@ -222,10 +237,9 @@ def fill_warped(warped_rgb, hole_mask, warped_depth, ref_rgb, ref_depth,
             D_w = D_w * 255.0
         D_w[hole] = -1.0
     if repaired:
-        _, D_w, _, _ = _warp.forward_warp(
-            ref_rgb, np.asarray(disp[0], np.float32),
-            None if disp[1] is None else np.asarray(disp[1], np.float32),
-            z=P_ref, hole_depth=-1.0, rule="zbuf", splat=cfg.splat)
+        # re-warp exactly like warp_and_fill does (same depth_dilate / splat / rule)
+        I_w, D_w, hole, _, dx_r, dy_r = warp_view(ref_rgb, P_ref, cfg)
+        disp = (dx_r, dy_r)
     if log:
         log(f"  input: {int(hole.sum())} hole px ({hole.mean()*100:.2f}%)")
     out = _run_pipeline(I_w, D_w, hole, ref_rgb, P_ref, disp, cfg, log=log)

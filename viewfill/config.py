@@ -50,10 +50,16 @@ class FillConfig:
     # additionally demands that no pixel of the source patch is foreground.
     bg_template: bool = True
     require_full_bg: bool = False
-    # Cracks lying on a depth step are disocclusion slivers: fill them from the background
-    # side ("auto") instead of the isotropic HHF, which pulls in the dark foreground edge
-    # and leaves a rim along the silhouette.  "hhf" is the paper-faithful behaviour.
-    crack_fill: str = "auto"
+    # Cracks lying on a depth step are disocclusion slivers: "linear" interpolates across
+    # them, "bg" copies the background side, "hhf" is the paper-faithful isotropic fill.
+    # On the seam metric (jump at the filled/background junction) none of them beats hhf,
+    # so hhf stays the default; the real lever is depth_dilate below (see 复现方案.md 9.7).
+    crack_fill: str = "hhf"
+    # Pre-dilate the disparity before warping (iterations of a 3x3 max filter).  A gradual
+    # depth ramp at a silhouette maps adjacent source columns more than 1 px apart, which
+    # produces the 1-2 px crack network; widening the splat footprint closes it.  Measured:
+    # cracks 12682 -> 9914, seam p90 39.0 -> 31.8, GT PSNR 20.40 -> 20.43 dB (1 iteration).
+    depth_dilate: int = 1
 
     # ---- misc --------------------------------------------------------------
     oofa_frac: float = 0.5

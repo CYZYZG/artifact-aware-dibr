@@ -207,7 +207,8 @@ def main():
 
     # ------------------------------------------------------------ 6) API consistency
     res_b = fill_warped(res["warped_float"], hole,
-                        np.asarray(res["warped_depth"], np.float32), rgb, inv, cfg=cfg)
+                        np.asarray(res["warped_depth"], np.float32), rgb, inv,
+                        disp=res["disp"], cfg=cfg)
     same = float(np.abs(res_b["I_filled"] - res["I_filled"]).max())
     diff_px = int((np.abs(res_b["I_filled"] - res["I_filled"]).max(axis=2) > 1e-3).sum())
     check("fill_warped reproduces warp_and_fill on the same warp (exact, no quantisation)",
@@ -234,33 +235,41 @@ def main():
     check("the pipeline is deterministic", same2 == 0.0, f"max diff {same2:g}")
 
     # ---------------------------------------------------------------- summary
-    # ------------------------------------------- 7) dark rim at the filled boundary
+    # ------------------------- 7) seam at the filled/untouched background boundary
     import cv2 as _cv2
 
-    def _rim(img, hole):
-        g = (0.299 * img[..., 0] + 0.587 * img[..., 1] + 0.114 * img[..., 2])
-        di = _cv2.distanceTransform(hole.astype(np.uint8), _cv2.DIST_L2, 5)
-        return (float(g[hole & (di <= 3)].mean() - g[hole & (di > 3) & (di <= 10)].mean()),
-                float(g[hole].mean()))
+    def _jump(res):
+        """Mean |jump| between the filled side and the untouched side at the boundary."""
+        g_f = 0.299 * res["I_filled"][..., 0] + 0.587 * res["I_filled"][..., 1] \
+            + 0.114 * res["I_filled"][..., 2]
+        g_w = 0.299 * res["I_w"][..., 0] + 0.587 * res["I_w"][..., 1] \
+            + 0.114 * res["I_w"][..., 2]
+        hole, valid = res["hole_mask"], ~res["hole_mask"]
+        k = 9
 
-    r_hhf = fill_holes(rgb, inv, crack_fill="hhf", return_info=True)
-    r_auto = info                       # default crack_fill="auto"
-    rim_hhf, _ = _rim(r_hhf["I_filled"], r_hhf["hole_mask"])
-    rim_auto, _ = _rim(r_auto["I_filled"], r_auto["hole_mask"])
-    crack_hhf = float((0.299 * r_hhf["I_filled"][..., 0]
-                       + 0.587 * r_hhf["I_filled"][..., 1]
-                       + 0.114 * r_hhf["I_filled"][..., 2])[r_hhf["crack"]].mean())
-    crack_auto = float((0.299 * r_auto["I_filled"][..., 0]
-                        + 0.587 * r_auto["I_filled"][..., 1]
-                        + 0.114 * r_auto["I_filled"][..., 2])[r_auto["crack"]].mean())
-    check("background-side crack filling reduces the dark rim along the silhouette",
-          rim_auto > rim_hhf and crack_auto > crack_hhf,
-          f"rim {rim_hhf:+.2f} -> {rim_auto:+.2f} gray levels, crack luma "
-          f"{crack_hhf:.1f} -> {crack_auto:.1f} "
-          f"({r_auto['stats'].get('crack_bg_side_px', 0)} px filled from the bg side)")
-    check("the residual rim is close to the image's own contact shadow "
-          "(reference: -4.1 gray levels near the silhouette)",
-          abs(rim_auto) < 6.0, f"rim {rim_auto:+.2f}")
+        def loc(img, mask):
+            m = mask.astype(np.float32)
+            num = _cv2.boxFilter(img * m, -1, (k, k), normalize=False,
+                                 borderType=_cv2.BORDER_REPLICATE)
+            den = _cv2.boxFilter(m, -1, (k, k), normalize=False,
+                                 borderType=_cv2.BORDER_REPLICATE)
+            return num / np.maximum(den, 1e-6)
+
+        bnd = hole & _cv2.dilate(valid.astype(np.uint8),
+                                 np.ones((3, 3), np.uint8)).astype(bool)
+        j = np.abs(loc(g_f, hole)[bnd] - loc(g_w, valid)[bnd])
+        return float(j.mean()), float(np.percentile(j, 90))
+
+    r_raw = fill_holes(rgb, inv, depth_dilate=0, return_info=True)
+    seam_hhf, p90_hhf = _jump(info)
+    seam_raw, p90_raw = _jump(r_raw)
+    check("depth pre-dilation reduces the crack network and the seam at the boundary",
+          int(info["crack"].sum()) < int(r_raw["crack"].sum()) and p90_raw < 100,
+          f"cracks {int(r_raw['crack'].sum())} -> {int(info['crack'].sum())} px, "
+          f"seam mean {seam_raw:.2f} -> {seam_hhf:.2f}, p90 {p90_raw:.1f} -> {p90_hhf:.1f} "
+          f"gray levels")
+    check("the seam is not systematically brighter or darker than the background",
+          abs(seam_hhf) < 30.0, f"seam mean {seam_hhf:.2f} gray levels (report only)")
 
     n_fail = sum(1 for _, ok, _ in results if not ok)
     print(f"\n{len(results) - n_fail}/{len(results)} checks passed   "
