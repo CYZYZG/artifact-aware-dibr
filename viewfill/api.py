@@ -19,7 +19,7 @@ __all__ = ["fill_holes"]
 
 def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
                splat="sub", rule="zbuf", lam=5.0, se_orientation="auto",
-               crack_shape="none", crack_fill="hhf", depth_dilate="auto7", src_depth_tol=0.0,
+               crack_shape="none", crack_fill="hhf", depth_dilate="auto7", epipolar=None, src_depth_tol=0.0,
                beta=150.0, beta_mode="mean",
                skip_ghosts=False, fix_mode="copy", fg_side="gt",
                band_radius=2, alpha_sim=11.0, hhf_sigma=1.0, ksize=9,
@@ -48,6 +48,14 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
     crack_fill : "hhf" (default, the paper's isotropic hierarchical fill) | "linear"
         (interpolate across a thin crack) | "bg" (copy the background side).  Measured to be
         equivalent-to-worse on the seam metric, kept for experiments.
+    epipolar : RECTIFIED INPUT ONLY.  Set 0 (same row) or +-1/+2 rows.  In a rectified pair
+        the disparity has no vertical component, so a hole pixel may only be filled from the
+        same row; the default 2D search window has no such prior and, measured on cam6->cam7,
+        takes 55-61 % of its source patches from a DIFFERENT row (p90 offset 21-24 px, max
+        63 px), which is what shifts horizontal structures (rails/barres) up or down inside
+        the filled band.  epipolar=0 removes that completely (0 % off-row) at a cost of about
+        0.1-0.45 dB GT PSNR (smaller candidate pool).  None = off (needed when the
+        displacement field really has a y component).
     depth_dilate : widen the splat footprint before warping, so that a fast disparity ramp
         at a silhouette does not leave a 1-2 px crack network - the main source of the
         visible seam at the filled/background junction.  An int n applies n iterations of a
@@ -101,6 +109,7 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
     cfg = FillConfig(scale=scale, splat=splat, rule=rule, lam=lam,
                      se_orientation=se_orientation, crack_shape=crack_shape,
                      crack_fill=crack_fill, depth_dilate=depth_dilate, src_depth_tol=src_depth_tol,
+                     epipolar=epipolar,
                      beta=beta, beta_mode=beta_mode, skip_ghosts=skip_ghosts,
                      fix_mode=fix_mode, fg_side=fg_side, band_radius=band_radius,
                      alpha_sim=alpha_sim, hhf_sigma=hhf_sigma, ksize=ksize,

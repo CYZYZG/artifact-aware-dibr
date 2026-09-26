@@ -72,6 +72,12 @@ class FillConfig:
 
 
     depth_dilate: object = "auto7"
+    # RECTIFIED INPUT: the disparity has no vertical component, so a hole pixel may only be
+    # filled from the SAME row.  None = off (search the full 2D window, needed when the
+    # displacement field has a y component); 0 = same row only; n = allow +-n rows.
+    # Without it the matcher can slide a source patch vertically, which shifts horizontal
+    # structures (rails/barres) up or down inside the filled band.
+    epipolar: object = None
     # Reject source patches that straddle a depth edge (patch inverse-depth std above this
     # tolerance, on the 0..255 depth scale).  Such a patch carries the dark silhouette edge
     # or its shadow into the hole, which is what shows up as a ghost contour along the seam.
@@ -87,7 +93,7 @@ class FillConfig:
         return dict(n_window=self.n_window, sizes=tuple(self.sizes), beta=self.beta,
                     beta_mode=self.beta_mode, max_iter=self.max_iter, splat=self.splat,
                     bg_template=self.bg_template, require_full_bg=self.require_full_bg,
-                    src_depth_tol=self.src_depth_tol)
+                    src_depth_tol=self.src_depth_tol, epipolar=self.epipolar)
 
     def as_dict(self) -> dict:
         d = dict(self.__dict__)

@@ -122,7 +122,7 @@ SEARCH_DIAG = {"nv0": 0, "region": 0, "nonfinite": 0, "calls": 0, "ok_empty": 0}
 def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=69,
                  sizes=(9, 7, 5, 3), beta=35.0, bg_only=True, beta_mode="mean",
                  require_full_valid=False, D_w=None, bg_template=False,
-                 require_full_bg=False, src_depth_tol=0.0):
+                 require_full_bg=False, src_depth_tol=0.0, epipolar=None):
     """Best source patch in the reference image.  Returns (qy, qx, k, cost, n_cand, used_bg).
 
     (py, px)  centre of the patch to be filled, in the SYNTHETIC view (template source)
@@ -216,6 +216,20 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
                 used_bg = True
             else:
                 SEARCH_DIAG["ok_empty"] += 1
+        if epipolar is not None:
+            # RECTIFIED INPUT: a hole pixel at (y, x) can only be filled correctly from the
+            # same epipolar row y (in a rectified pair the disparity has no y component).
+            # The default 2D window lets the matcher slide the source patch vertically
+            # whenever that matches the local texture better, which shifts horizontal
+            # structures (rails, barres) up or down inside the filled region.
+            rc = wy - (y0 + r)
+            lo = max(0, rc - int(epipolar))
+            hi = min(ssd.shape[0], rc + int(epipolar) + 1)
+            band = np.zeros_like(cand)
+            band[lo:hi] = True
+            cand = cand & band
+            if not cand.any():
+                cand = band.copy()
         ssd_m = np.where(cand, ssd, np.inf)
         flat = int(np.argmin(ssd_m))
         raw = float(ssd_m.ravel()[flat])
@@ -225,6 +239,8 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
         cost = raw / (3.0 * nv) if beta_mode == "mean" else raw
         oy, ox = np.unravel_index(flat, ssd.shape)
         qy, qx = y0 + r + oy, x0 + r + ox
+        SEARCH_DIAG.setdefault("dy", []).append(int(qy - wy))
+        SEARCH_DIAG.setdefault("dx", []).append(int(qx - wx))
         if cost <= beta or k == sizes[-1]:
             return qy, qx, k, cost, int(cand.sum()), used_bg
     return None
@@ -300,7 +316,8 @@ def fill_component(I_w, D_w, valid, lab, k, bbox, src_of, ref_color, ref_depth, 
                              require_full_valid=full_valid, D_w=D_w,
                              bg_template=params.get("bg_template", False),
                              require_full_bg=params.get("require_full_bg", False),
-                             src_depth_tol=params.get("src_depth_tol", 0.0))
+                             src_depth_tol=params.get("src_depth_tol", 0.0),
+                             epipolar=params.get("epipolar", None))
         if found is None:
             log["failed"] += 1
             log["fail_reason"] = "no patch"
