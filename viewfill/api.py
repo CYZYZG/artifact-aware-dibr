@@ -19,7 +19,7 @@ __all__ = ["fill_holes"]
 
 def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
                splat="sub", rule="zbuf", lam=5.0, se_orientation="auto",
-               crack_shape="none", crack_fill="hhf", depth_dilate="auto7", epipolar=2, src_depth_tol=0.0,
+               crack_shape="none", crack_fill="hhf", depth_dilate="auto7", epipolar=None, src_depth_tol=0.0,
                beta=150.0, beta_mode="mean",
                skip_ghosts=False, fix_mode="copy", fg_side="gt",
                band_radius=2, alpha_sim=11.0, hhf_sigma=1.0, ksize=9,
@@ -48,14 +48,14 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
     crack_fill : "hhf" (default, the paper's isotropic hierarchical fill) | "linear"
         (interpolate across a thin crack) | "bg" (copy the background side).  Measured to be
         equivalent-to-worse on the seam metric, kept for experiments.
-    epipolar : how many rows the matcher may deviate from the BACKPROJECTED row of the
-        hole pixel (which already contains the flow dy, so this is safe for a 2D flow
-        too).  Default 2.  Without this bound the 2D window lets a source patch slide
-        vertically: measured on cam6 -> cam7, 58.8 % of the patch choices came from a
-        different row with p90 offset 22.7 px (max 63 px) - that is what shifts
-        horizontal structures (rails/barres) up or down inside the filled band.
-        Bounding it: 2 -> p90 2.0 px at -0.02 dB GT, 1 -> 1.0 px at -0.09 dB,
-        0 -> 0 px at -0.21 dB.  None = no bound.
+    epipolar : escape hatch that does NOT help on this data.  Limit how many rows the
+        matcher may deviate from the BACKPROJECTED row; None (default) = no limit.
+        Measured (all / filled-band / barre-row PSNR): None 28.40/24.66/24.64,
+        2 = 28.33/24.30/24.29, 0 = 28.12/23.40/19.92.  The row offsets are real
+        (58.8 % of patches, p90 22.7 px) but mostly beneficial: the correct background
+        of a disocclusion is occluded in the reference at that row, so the same-row
+        pool cannot contain it.  Use 0/1/2 only if the background behind your objects
+        has strong horizontal structure that must not move vertically.
 
     Returns
     -------

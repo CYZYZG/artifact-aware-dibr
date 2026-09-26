@@ -77,13 +77,16 @@ class FillConfig:
     # displacement field has a y component); 0 = same row only; n = allow +-n rows.
     # Without it the matcher can slide a source patch vertically, which shifts horizontal
     # structures (rails/barres) up or down inside the filled band.
-    epipolar: object = 2
-    # Measured on cam6->cam7 (3 frames, mean): None -> 58.8% of the patch choices come
-    # from a different row, row offset p90 22.7 px (max 63), which is what shifts
-    # horizontal structures (rails/barres) up or down inside the filled band.
-    # epipolar=2 -> p90 2.0 px at -0.02 dB GT; 1 -> 1.0 px at -0.09 dB;
-    # 0 -> 0 px at -0.21 dB.  The bound is relative to the BACKPROJECTED row (which
-    # already contains the flow dy), so 2 is safe for a 2D flow as well.
+    epipolar: object = None
+    # MEASURED VERDICT - constraining this does NOT help here.  Error decomposition over
+    # 2 frames (all / filled-band / barre-row PSNR): None 28.40/24.66/24.64 (default,
+    # best), 2 = 28.33/24.30/24.29, 0 = 28.12/23.40/19.92 (much worse, even on the
+    # barre rows).  The row offsets are real (58.8 % of patches, p90 22.7 px) but mostly
+    # BENEFICIAL: in a disocclusion the correct background is occluded in the reference
+    # at that very row, so a same-row candidate pool cannot contain it - borrowing the
+    # same background surface from another row is usually right.  Use 0/1/2 only when
+    # the background behind your objects has strong horizontal structure (rails, fences)
+    # that must not shift vertically.
 
     # Reject source patches that straddle a depth edge (patch inverse-depth std above this
     # tolerance, on the 0..255 depth scale).  Such a patch carries the dark silhouette edge
