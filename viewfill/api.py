@@ -19,7 +19,7 @@ __all__ = ["fill_holes"]
 
 def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
                splat="sub", rule="zbuf", lam=5.0, se_orientation="auto",
-               crack_shape="none", crack_fill="hhf", depth_dilate=2, src_depth_tol=0.0,
+               crack_shape="none", crack_fill="hhf", depth_dilate=3, src_depth_tol=0.0,
                beta=150.0, beta_mode="mean",
                skip_ghosts=False, fix_mode="copy", fg_side="gt",
                band_radius=2, alpha_sim=11.0, hhf_sigma=1.0, ksize=9,
@@ -51,12 +51,11 @@ def fill_holes(image, inv_depth, scale=-44.8, *, depth_range="auto",
     depth_dilate : widen the splat footprint before warping, so that a fast disparity ramp
         at a silhouette does not leave a 1-2 px crack network - the main source of the
         visible seam at the filled/background junction.  An int n applies n iterations of a
-        3x3 max filter everywhere (default 2, the best visual/geometric compromise);
-        "auto" widens only where the disparity gradient demands it (best GT PSNR, and the
-        foreground is not inflated, but thin reconstructed lines remain along the
-        silhouette).  Measured at scale -44.8: 0 -> seam 10.27/p90 39.1/cracks 12682,
-        2 -> 7.90/22.3/9526, 3 -> 4.49/11.2/9294 (foreground 3 px fatter),
-        "auto" -> 7.50/21.9/10815.  0 = off.
+        3x3 max filter everywhere (default 3: smallest seam); "auto", "auto5", "auto7" widen
+        only where the disparity gradient demands it (best GT PSNR at auto5).  Measured at
+        scale -44.8 (seam mean / p90 / p99 / residual crack px): 0 = 10.27/39.1/65.8/12682,
+        2 = 7.90/22.3/40.6/9526, 3 = 4.49/11.2/25.5/9294, auto5 = 5.01/13.5/27.5/10420,
+        auto7 = 4.54/12.1/31.7/10131.  0 = off.
     beta, beta_mode : adaptive patch-size acceptance threshold (default 150 on the
         per-pixel mean squared error scale).
     skip_ghosts : skip the ghost-removal stage (measured to be within noise on the data

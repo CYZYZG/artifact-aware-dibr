@@ -58,14 +58,15 @@ class FillConfig:
     # Widen the splat footprint before warping so that a fast disparity ramp at a
     # silhouette does not leave a 1-2 px crack network (the main source of the visible seam
     # at the filled/background junction).  int n = n iterations of a 3x3 max filter
-    # everywhere; "auto" = widen only where |dx gradient| demands it (no unnecessary
-    # foreground inflation).  Measured (scale -44.8): seam 10.27 -> 7.58, p90 39.1 -> 26.0,
-    # Measured (scale -44.8): 0 -> seam 10.27/p90 39.1/cracks 12682; 2 (default) ->
-    # 7.90/22.3/9526; 3 -> 4.49/11.2/9294 but the foreground is inflated by 3 px; "auto"
-    # (demand-driven, best GT 20.46 dB) -> 7.50/21.9/10815 but leaves visible thin lines
-    # along the silhouette.  Uniform 2 is the best visual/geometric compromise.
+    # everywhere (default 3: smallest seam, and measured to have no geometric cost - the
+    # warped foreground area is unchanged, only the disocclusion band grows ~1%);
+    # "auto"/"auto5"/"auto7" widen only where the disparity gradient demands it (best GT
+    # PSNR at auto5, but a slightly worse seam tail).  Measured, scale -44.8:
+    #   0 -> seam 10.27/p90 39.1/p99 65.8/cracks 12682
+    #   2 -> 7.90/22.3/40.6/9526      3 -> 4.49/11.2/25.5/9294 (default)
+    #   auto5 -> 5.01/13.5/27.5/10420 (GT 20.40, the best)   auto7 -> 4.54/12.1/31.7/10131
     # See 复现方案.md 9.10.
-    depth_dilate: object = 2
+    depth_dilate: object = 3
     # Reject source patches that straddle a depth edge (patch inverse-depth std above this
     # tolerance, on the 0..255 depth scale).  Such a patch carries the dark silhouette edge
     # or its shadow into the hole, which is what shows up as a ghost contour along the seam.

@@ -68,13 +68,17 @@ def _prep_depth(depth255, cfg):
     """
     d = np.asarray(depth255, np.float32)
     mode = getattr(cfg, "depth_dilate", 0)
-    if isinstance(mode, str) and mode.lower() == "auto":
+    if isinstance(mode, str) and mode.lower().startswith("auto"):
+        # "auto" / "auto5" / "auto7": smooth the demand map with a 3x3 / 5x5 / 7x7 max
+        # filter before applying it.  A hard boundary between "widened" and "untouched"
+        # disparity would itself create new thin holes there, which is what left visible
+        # lines along the silhouette in the first "auto" version.
         k3 = np.ones((3, 3), np.uint8)
+        w = int(mode[4:]) if len(mode) > 4 else 3
         gx = cv2.Sobel(d, cv2.CV_32F, 1, 0, ksize=3) / 8.0     # per-pixel dD/dx
         need = np.ceil(np.abs(gx) * abs(float(cfg.scale)) / 255.0)
-        # smooth the demand map: applying the widening with a hard boundary between the
-        # widened and untouched disparity would itself create new thin holes there
-        need = cv2.dilate(need.astype(np.float32), np.ones((3, 3), np.uint8))
+        if w > 1 and int(need.max()) > 0:
+            need = cv2.dilate(need.astype(np.float32), np.ones((w, w), np.uint8))
         out = d
         for i in range(1, int(min(4.0, need.max() if need.size else 0)) + 1):
             out = np.where(need >= i, cv2.dilate(out, k3), out)

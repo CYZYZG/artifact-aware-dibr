@@ -47,7 +47,7 @@ def seam_stats(I_f, I_w, hole):
 print(f"{'mode':>6s} | {'seam':>6s} {'p90':>6s} {'p99':>6s} {'max':>6s} | {'cracks':>7s} | "
       f"{'GT PSNR':>7s} {'GT SSIM':>7s} | {'war fg px':>9s} {'hole px':>8s} | {'t s':>5s}")
 outs = {}
-for mode in (0, 2, "auto"):
+for mode in (0, 2, 3, "auto", "auto5", "auto7"):
     t = time.time()
     r = warp_and_fill(rgb, inv, FillConfig(scale=-44.8, depth_dilate=mode))
     dt = time.time() - t
@@ -68,7 +68,7 @@ for mode in (0, 2, "auto"):
 x0, x1, y0, y1 = 640, 900, 60, 700
 sepr = np.full((y1 - y0, 3, 3), 255, np.uint8)
 row = None
-for mode in (2, "auto"):
+for mode in (2, "auto7"):
     I_f = outs[mode][0]
     tile = np.clip(I_f, 0, 255).astype(np.uint8)[y0:y1, x0:x1]
     row = tile if row is None else np.hstack([row, sepr, tile])
