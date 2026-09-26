@@ -4,7 +4,7 @@ import os
 import cv2
 import numpy as np
 
-DATASET_ROOT_DEFAULT = r"D:\项目\3DVideos-distrib\MSR3DVideo-Ballet"
+DATASET_ROOT_DEFAULT = os.environ.get("BALLET_DATA_ROOT", r"D:\项目\3DVideos-distrib\MSR3DVideo-Ballet")
 
 
 def imread(path, gray=False):

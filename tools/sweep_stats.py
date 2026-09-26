@@ -12,13 +12,15 @@ and prints the per-mode means plus the best-per-sample counts.
 """
 import argparse
 import os
+import os
 import sys
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 
-CSV = r"D:\项目\空洞填补\output\sweep_all.csv"
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CSV = os.path.join(HERE, "output", "sweep_all.csv")
 LOWER_IS_BETTER = {"seam": True, "p90": True, "cracks": True, "holes": True,
                    "gt_psnr": False, "gt_ssim": False}
 

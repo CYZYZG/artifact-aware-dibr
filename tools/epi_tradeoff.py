@@ -12,7 +12,7 @@ import sys
 import cv2
 import numpy as np
 
-HERE = r"D:\项目\空洞填补"
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 from dibr import calib, inpaint, io_utils, viz, warp as W  # noqa: E402
 from viewfill import FillConfig  # noqa: E402
