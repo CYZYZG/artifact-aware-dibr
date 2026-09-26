@@ -44,6 +44,23 @@ def main():
     print(f"input: {os.path.basename(IMG)} {rgb.shape} + {os.path.basename(DEP)} "
           f"inverse depth [{inv.min():.3f}, {inv.max():.3f}]")
 
+    # ------------------------------------------------- 0) the one-call interface
+    from viewfill import fill_holes
+    fixed = fill_holes(rgb, inv, scale=-44.8)
+    info = fill_holes(rgb, inv, scale=-44.8, return_info=True)
+    check("fill_holes(image, inv_depth) -> repaired image in one call",
+          fixed.shape == rgb.shape and fixed.dtype == np.uint8
+          and int(info["remaining"].sum()) == 0,
+          f"{rgb.shape} {rgb.dtype} -> {fixed.shape} {fixed.dtype}, "
+          f"{int(info['hole_mask'].sum())} hole px -> 0")
+    check("fill_holes accepts an 8-bit depth map",
+          np.array_equal(fill_holes(rgb, (inv * 255).astype(np.uint8)), fixed))
+    gray = (rgb.astype(np.float32) @ np.array([0.299, 0.587, 0.114])).astype(np.uint8)
+    fg_out = fill_holes(gray, inv)
+    check("fill_holes accepts a grayscale image and returns grayscale",
+          fg_out.shape == gray.shape and fg_out.dtype == np.uint8,
+          f"{gray.shape} -> {fg_out.shape}")
+
     # ---------------------------------------------------------------- 1) convention
     cfg = FillConfig(scale=-44.8)
     disp = disparity_from_depth(inv * 255.0, cfg.scale)

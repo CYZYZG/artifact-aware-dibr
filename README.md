@@ -18,8 +18,35 @@ View Synthesis*, IEEE Signal Processing Letters, 2018, DOI 10.1109/LSP.2018.2870
 
 约定：`视差(px) = 逆深度(0..1) × scale`，默认 `scale=-44.8`（内容左移、OOFA 在右边缘）。
 
+```python
+from viewfill import fill_holes
+
+fixed = fill_holes(image, inv_depth)                      # 一步到位：原图 + 归一化逆深度
+fixed = fill_holes(image, inv_depth, scale=-44.8)         # 指定视差尺度
+info  = fill_holes(image, inv_depth, return_info=True)    # 还要掩码/各阶段统计
+fixed = fill_holes(image, inv_depth, verbose=True)        # 打印各阶段日志
+```
+
+`image` 可为 `HxWx3`（RGB/BGR，通道顺序原样保留）或 `HxW` 灰度；`inv_depth` 可为 0..1 浮点或 0..255
+整数（自动识别），约定 **近=大**。返回值就是修好空洞的图像（`uint8`，形状/通道与输入一致）。
+
+| 参数（都可省略） | 默认 | 说明 |
+| --- | --- | --- |
+| `scale` | `-44.8` | 视差(px) = 归一化逆深度 × scale；符号决定方向，绝对值决定空洞大小 |
+| `depth_range` | `"auto"` | `auto` / `"01"` / `"255"` 强制深度约定 |
+| `splat` | `"sub"` | `sub` 亚像素（裂纹少）／`floor`/`round` 整数单点（经典 DIBR，裂纹多） |
+| `rule` | `"zbuf"` | `zbuf` 最近样本优先／`avg` 权重平均 |
+| `lam` | `5.0` | 裂纹检测阈值（0..255 深度尺度） |
+| `beta`, `beta_mode` | `150`, `"mean"` | 自适应 patch 尺寸的接受阈值 |
+| `skip_ghosts` | `False` | 跳过鬼影矫正 |
+| `n_window`, `sizes` | `69`, `(9,7,5,3)` | 搜索窗边长 / patch 尺寸链 |
+| `return_info` | `False` | 返回完整结果字典（掩码、各阶段统计、深度） |
+| `verbose` | `False` | 打印各阶段日志 |
+
+更底层/更灵活的两种用法：
+
 ```powershell
-# A) 自带 warp：原图 + 逆深度 -> warp -> 填洞
+# A) 自带 warp（等价于 fill_holes，但可落盘所有中间产物）
 python -m viewfill --image color.jpg --depth depth.png --scale -44.8 --out out\run1
 
 # B) 只填已有 warp（你自己的 warp 代码产出的图/掩码/深度）
@@ -29,10 +56,6 @@ python -m viewfill --warped warped.png --hole hole.png --depth-warped warped_dep
 # 可选：给真值就顺便算 PSNR/SSIM
 python -m viewfill --image color.jpg --depth depth.png --scale -44.8 --gt gt.png --out out\run1
 ```
-
-> `--depth-warped` 必须是**原始深度图**（灰度/浮点数据），不能是伪彩可视化图。
-> 本工具每次运行都会输出两份深度：`06_warped_depth.png`/`07_filled_depth.png` 是伪彩（给人看），
-> `06b_warped_depth_raw.png`/`07b_filled_depth_raw.png` 是原始 8-bit（给回流/下游用）。
 
 ```python
 from viewfill import FillConfig, warp_and_fill, fill_warped
@@ -47,11 +70,12 @@ res["stats"]    # 各阶段指标（含 GT-free 回投一致性）
 
 | 项 | 结果 |
 | --- | --- |
-| warp | scale −44.8 → 空洞 4.55 %（35 812 px），OOFA 在右边缘 |
-| 填充 | 27 709 px → **0 px**，9.4 s（1024×768） |
-| 喂入你提供的 `warping.scatter_image` 输出 | 35 812 px → **0 px**，9.2 s |
+| **一次调用** `fill_holes(color, inv_depth)` | 35 812 空洞 px → **0 px**，10 s（1024×768） |
+| warp | scale −44.8 → 空洞 4.55 %，OOFA 在右边缘 |
+| 填充 | 27 709 px → **0 px**，9.4 s |
+| 喂入你提供的 `warping.scatter_image` 输出 | 35 812 px → **0 px**，9.6 s（`inverse_ordering=False`） |
 | GT-free 回投一致性 | 28.50 → **35.15 dB** |
-| scale −20 / −44.8 / −80 | 空洞 1.84 / 4.55 / 8.15 %，三档全部填满 |
+| scale −20 / −44.8 / −80 | 空洞 1.84 / 4.55 / 8.15 %，三档全部填满（4.4 / 10 / 19.7 s） |
 | 真实相机压力测试（Ballet cam6→cam7，纯 1D） | 整帧 18.14 → **20.39 dB**，SSIM 0.677 → 0.710 |
 
 注意：贪心填充顺序对输入微小扰动敏感（同一张图量化成 uint8 再喂回去，结果**质量等价**但非逐像素相同），验收请用"空洞清零 + 回投一致性 + 目视"，不要用逐像素比对。参数调节建议见 `复现方案.md` §9.4。

@@ -15,10 +15,11 @@ or feed it an already warped image with holes and it fills those.
     res["filled"]        # HxWx3 uint8, no holes
     res["stats"]         # per-stage numbers
 """
+from .api import fill_holes                          # noqa: F401
 from .config import FillConfig                        # noqa: F401
 from .io import load_image, load_depth, load_pair     # noqa: F401
 from .pipeline import fill_warped, warp_and_fill      # noqa: F401
 
-__all__ = ["FillConfig", "warp_and_fill", "fill_warped", "load_image", "load_depth",
-           "load_pair"]
-__version__ = "1.0.0"
+__all__ = ["FillConfig", "warp_and_fill", "fill_warped", "fill_holes",
+           "load_image", "load_depth", "load_pair"]
+__version__ = "1.1.0"
