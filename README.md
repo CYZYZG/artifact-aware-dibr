@@ -30,6 +30,10 @@ python -m viewfill --warped warped.png --hole hole.png --depth-warped warped_dep
 python -m viewfill --image color.jpg --depth depth.png --scale -44.8 --gt gt.png --out out\run1
 ```
 
+> `--depth-warped` 必须是**原始深度图**（灰度/浮点数据），不能是伪彩可视化图。
+> 本工具每次运行都会输出两份深度：`06_warped_depth.png`/`07_filled_depth.png` 是伪彩（给人看），
+> `06b_warped_depth_raw.png`/`07b_filled_depth_raw.png` 是原始 8-bit（给回流/下游用）。
+
 ```python
 from viewfill import FillConfig, warp_and_fill, fill_warped
 

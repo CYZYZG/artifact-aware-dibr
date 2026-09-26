@@ -132,6 +132,14 @@ def save(res, cfg, out_dir, ref_rgb=None, gt=None, write_arrays=True):
                   valid_mask=~res["hole_mask"], vmin=0, vmax=255)
     vio.save_gray(os.path.join(out_dir, "07_filled_depth.png"), res["D_filled"],
                   valid_mask=~res["remaining"], vmin=0, vmax=255)
+    # raw (non-colourised) depth maps so the outputs can be fed back in via
+    # --warped/--hole/--depth-warped for a second pass or for downstream use
+    vio.save_image(os.path.join(out_dir, "06b_warped_depth_raw.png"),
+                   np.repeat(np.clip(np.maximum(np.asarray(res["warped_depth"]), 0), 0, 255)
+                             .astype(np.uint8)[:, :, None], 3, 2))
+    vio.save_image(os.path.join(out_dir, "07b_filled_depth_raw.png"),
+                   np.repeat(np.clip(np.asarray(res["D_filled"]), 0, 255)
+                             .astype(np.uint8)[:, :, None], 3, 2))
     st = metrics(res, cfg, ref_rgb=ref_rgb, gt=gt)
     if ref_rgb is not None:
         vio.save_image(os.path.join(out_dir, "08_panel.png"),
