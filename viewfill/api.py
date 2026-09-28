@@ -47,7 +47,7 @@ def fill_holes(image, inv_depth, scale=-44.8, *,
                ksize=9, n_window=69, sizes=(9, 7, 5, 3),
                beta=150.0, beta_mode="mean", max_iter=400000,
                # ---- patch search priors ----------------------------------------------
-               struct_pen=8.0, epipolar=None, src_depth_tol=0.0,
+               struct_pen=8.0, edge_pen=15.0, edge_ref=6.0, epipolar=None, src_depth_tol=0.0,
                bg_template=True, require_full_bg=False,
                # ---- misc --------------------------------------------------------------
                seed=0, return_info=False, verbose=False):
@@ -199,7 +199,8 @@ def fill_holes(image, inv_depth, scale=-44.8, *,
                      fg_side=fg_side, alpha_sim=alpha_sim, oofa_frac=oofa_frac,
                      ksize=ksize, n_window=n_window, sizes=tuple(sizes),
                      beta=beta, beta_mode=beta_mode, max_iter=max_iter,
-                     struct_pen=struct_pen, epipolar=epipolar,
+                     struct_pen=struct_pen, edge_pen=edge_pen, edge_ref=edge_ref,
+                     epipolar=epipolar,
                      src_depth_tol=src_depth_tol, bg_template=bg_template,
                      require_full_bg=require_full_bg, seed=seed,
                      repair_warp="never")     # we do the warp ourselves, nothing to fix

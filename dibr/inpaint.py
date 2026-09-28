@@ -123,7 +123,7 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
                  sizes=(9, 7, 5, 3), beta=35.0, bg_only=True, beta_mode="mean",
                  require_full_valid=False, D_w=None, bg_template=False,
                  require_full_bg=False, src_depth_tol=0.0, epipolar=None,
-                 struct_pen=0.0):
+                 struct_pen=0.0, edge_pen=0.0, edge_ref=6.0):
     """Best source patch in the reference image.  Returns (qy, qx, k, cost, n_cand, used_bg).
 
     (py, px)  centre of the patch to be filled, in the SYNTHETIC view (template source)
@@ -161,17 +161,24 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
     used_bg = False
     SEARCH_DIAG["calls"] += 1
     w_struct = 0.0
-    if struct_pen > 0:
+    w_low = 0.0
+    if struct_pen > 0 or edge_pen > 0:
         # strength of HORIZONTAL structure around the hole: a big vertical gradient means a
         # rail/fence crosses here and a vertically displaced source patch would break it.
         # Vertically homogeneous background (curtain, floor) gives a small weight, so
         # borrowing the same surface from another row stays free there.
-        gy0, gx0 = max(0, int(wy) - 7), max(0, int(wx) - 7)
-        win = np.asarray(ref_color[gy0:gy0 + 15, gx0:gx0 + 15], np.float32)
+        gy0, gx0 = max(0, int(wy) - 15), max(0, int(wx) - 15)
+        win = np.asarray(ref_color[gy0:gy0 + 31, gx0:gx0 + 31], np.float32)
+        dwin = np.asarray(ref_depth[gy0:gy0 + 31, gx0:gx0 + 31], np.float32)
         if win.size:
             gr = (win if win.ndim == 2
                   else 0.299 * win[..., 0] + 0.587 * win[..., 1] + 0.114 * win[..., 2])
-            w_struct = min(3.0, float(np.abs(np.diff(gr, axis=0)).mean()) / 2.0)
+            e = np.abs(np.diff(gr, axis=0))
+            bg = dwin[:-1] <= T                    # ignore the foreground (leg) itself
+            loc_edge = float(np.median(e[bg])) if bg.any() else float(e.mean())
+            w_struct = min(3.0, loc_edge / 2.0)
+            # 1 for a perfectly smooth (low-texture) neighbourhood, 0 where texture is rich
+            w_low = float(np.clip(1.0 - loc_edge / max(edge_ref, 1e-6), 0.0, 1.0))
     for k in sizes:
         r = k // 2
         ys = np.arange(py - r, py + r + 1)
@@ -243,11 +250,23 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
             cand = cand & band
             if not cand.any():
                 cand = band.copy()
+        pen = np.zeros_like(ssd)
         if struct_pen > 0 and w_struct > 0:
             rr = ((y0 + r + np.arange(ssd.shape[0], dtype=np.float32)) - float(wy))
-            ssd_sel = ssd + (struct_pen * w_struct) * (rr ** 2)[:, None] * (3.0 * nv)
-        else:
-            ssd_sel = ssd
+            pen = pen + (struct_pen * w_struct) * (rr ** 2)[:, None]
+        if edge_pen > 0 and w_low > 0:
+            # strong-gradient content inside the SOURCE patch (baseboard, shadow boundary)
+            gr_region = (region if region.ndim == 2 else
+                         0.299 * region[..., 0] + 0.587 * region[..., 1]
+                         + 0.114 * region[..., 2]).astype(np.float32)
+            gx = cv2.Sobel(gr_region, cv2.CV_32F, 1, 0, ksize=3) / 8.0
+            gy = cv2.Sobel(gr_region, cv2.CV_32F, 0, 1, ksize=3) / 8.0
+            emag = cv2.magnitude(gx, gy)
+            emean = cv2.boxFilter(emag, -1, (k, k), normalize=True,
+                                  borderType=cv2.BORDER_REPLICATE)
+            ec = emean[r: r + ssd.shape[0], r: r + ssd.shape[1]]
+            pen = pen + (edge_pen * w_low) * ec
+        ssd_sel = ssd + pen * (3.0 * nv)
         ssd_m = np.where(cand, ssd_sel, np.inf)
         flat = int(np.argmin(ssd_m))
         raw = float(ssd.ravel()[flat])
@@ -336,7 +355,9 @@ def fill_component(I_w, D_w, valid, lab, k, bbox, src_of, ref_color, ref_depth, 
                              require_full_bg=params.get("require_full_bg", False),
                              src_depth_tol=params.get("src_depth_tol", 0.0),
                              epipolar=params.get("epipolar", None),
-                             struct_pen=params.get("struct_pen", 0.0))
+                             struct_pen=params.get("struct_pen", 0.0),
+                             edge_pen=params.get("edge_pen", 0.0),
+                             edge_ref=params.get("edge_ref", 6.0))
         if found is None:
             log["failed"] += 1
             log["fail_reason"] = "no patch"

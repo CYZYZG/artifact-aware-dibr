@@ -97,6 +97,13 @@ class FillConfig:
     #   8.0  28.41/24.74/24.42  p90  1.0 max  8  <- default (rail alignment best by visual check)
     # Tune on your own content; 0 disables the term.
     struct_pen: float = 8.0
+    # Low-texture protection: where the surroundings of a hole are smooth (plain wall), the
+    # only informative content nearby is the dark baseboard / contact shadow, and the matcher
+    # copies it -> a dark smeared band along the silhouette.  edge_pen charges
+    # edge_pen * w_low * mean|grad|(source patch), w_low = 1 for a smooth neighbourhood and 0
+    # where texture is rich (curtain), so only the problematic case is affected.
+    edge_pen: float = 15.0
+    edge_ref: float = 6.0
     # MEASURED VERDICT - constraining this does NOT help here.  Error decomposition over
     # 2 frames (all / filled-band / barre-row PSNR): None 28.40/24.66/24.64 (default,
     # best), 2 = 28.33/24.30/24.29, 0 = 28.12/23.40/19.92 (much worse, even on the
@@ -123,7 +130,8 @@ class FillConfig:
                     beta_mode=self.beta_mode, max_iter=self.max_iter, splat=self.splat,
                     bg_template=self.bg_template, require_full_bg=self.require_full_bg,
                     src_depth_tol=self.src_depth_tol, epipolar=self.epipolar,
-                    struct_pen=self.struct_pen)
+                    struct_pen=self.struct_pen,
+                    edge_pen=self.edge_pen, edge_ref=self.edge_ref)
 
     def as_dict(self) -> dict:
         d = dict(self.__dict__)
