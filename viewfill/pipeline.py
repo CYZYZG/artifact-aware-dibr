@@ -162,11 +162,14 @@ def _run_pipeline(I_w, D_w, hole, ref_rgb, ref_depth255, disp, cfg, log=None):
         I_w, D_w, lam=cfg.lam, se_len=cfg.se_len, orientation=orient,
         hhf_sigma=cfg.hhf_sigma, hhf_ksize=cfg.hhf_ksize,
         shape_filter=cfg.crack_shape, max_thickness=cfg.max_thickness,
-        fill_mode=getattr(cfg, "crack_fill", "auto"))
+        fill_mode=getattr(cfg, "crack_fill", "auto"),
+        slit_only=getattr(cfg, "slit_only", True))
     I_w, D_w = res1["I_filled"], res1["D_filled"]
     hole = res1["remaining_holes"]
     stats.update(se_orientation=orient,
                  crack_bg_side_px=int(res1.get("bg_side_px", 0)),
+                 crack_big_hole_px=int(res1.get("big_hole_crack_px", 0)),
+                 hhf_unsupported_px=int(res1.get("hhf_unsupported_px", 0)),
                  crack_px=int(res1["crack"].sum()),
                  crack_empty_px=int(res1["empty_crack"].sum()),
                  crack_translucent_px=int(res1["translucent_crack"].sum()),

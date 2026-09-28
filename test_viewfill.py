@@ -292,6 +292,34 @@ def main():
            "disocc", "filled_depth", "warped_depth", "stats"} <= set(info),
           f"{len(info)} keys")
 
+    # ---------- 9) large-hole caps are not cracks, and HHF never leaves black pixels
+    from dibr.cracks import fill_cracks
+    lum_s = lambda a: 0.299 * a[..., 0] + 0.587 * a[..., 1] + 0.114 * a[..., 2]
+    Hs, Ws = 60, 80
+    simg = np.full((Hs, Ws, 3), 180, np.float32)
+    simg[20:40, 30:38] = 40.0
+    sD = np.full((Hs, Ws), 200.0, np.float32)
+    sD[20:40, 30:38] = -1.0                       # an 8 px wide hole, not a slit
+    r_old = fill_cracks(simg, sD, lam=5.0, se_len=4, orientation="h", slit_only=False)
+    r_new = fill_cracks(simg, sD, lam=5.0, se_len=4, orientation="h", slit_only=True)
+    black_old = int((r_old["crack"]
+                     & (lum_s(np.asarray(r_old["I_filled"], np.float32)) <= 1)).sum())
+    black_new = int((r_new["crack"]
+                     & (lum_s(np.asarray(r_new["I_filled"], np.float32)) <= 1)).sum())
+    check("an 8 px wide hole is not classified as a crack (slit_only gate)",
+          int(r_old["crack"].sum()) > 0 and int(r_new["crack"].sum()) == 0,
+          f"crack px {int(r_old['crack'].sum())} -> {int(r_new['crack'].sum())}, "
+          f"rejected as large-hole {int(r_new.get('big_hole_crack_px', 0))}")
+    check("HHF leaves no black crack pixel (colour and depth stay consistent)",
+          black_new == 0 and int(r_new.get("hhf_unsupported_px", -1)) >= 0,
+          f"near-black crack px: legacy path {black_old}, fixed path {black_new}, "
+          f"unsupported-by-kernel {int(r_new.get('hhf_unsupported_px', -1))}")
+    luma_hole = lum_s(info["filled"])[info["hole_mask"]]
+    check("the real run fills every hole with real content (no black, no residual)",
+          int(info["remaining"].sum()) == 0 and int((luma_hole <= 1).sum()) == 0,
+          f"residual {int(info['remaining'].sum())} px, near-black inside the holes "
+          f"{int((luma_hole <= 1).sum())} px")
+
     n_fail = sum(1 for _, ok, _ in results if not ok)
     print(f"\n{len(results) - n_fail}/{len(results)} checks passed   "
           f"(total {time.time()-t0:.1f}s)")

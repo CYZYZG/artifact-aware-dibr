@@ -88,7 +88,7 @@ def _down(img, valid, sigma, ksize):
 
 
 def hhf_fill(img, valid, sigma=1.0, ksize=5, min_size=8, coarse_iters=16,
-             refine_iters=1):
+             refine_iters=1, return_support=False):
     """Fill the invalid pixels of `img` using a Gaussian pyramid of valid data only.
 
     Parameters
@@ -99,6 +99,10 @@ def hhf_fill(img, valid, sigma=1.0, ksize=5, min_size=8, coarse_iters=16,
     min_size     : stop building the pyramid below this side length
     coarse_iters : masked-blur iterations used to complete the coarsest level
     refine_iters : masked-blur iterations per level during reconstruction
+
+    return_support : also return the (H, W) mask of pixels within the kernel's reach of
+        real data; outside it the coarse estimate is kept instead of ~0 (which used to
+        leave BLACK pixels 3-4 px away from content).
 
     Returns the filled image (float32, same shape).  Values at originally valid pixels
     are returned unchanged, and no invalid pixel value ever influences the result.
@@ -125,7 +129,9 @@ def hhf_fill(img, valid, sigma=1.0, ksize=5, min_size=8, coarse_iters=16,
         if ev.all():
             break
         blur, vv = _masked_blur(est, ev, sigma, ksize)
-        est = np.where(ev[..., None], est, blur)
+        # take the blurred value only where valid data actually supports it: where the
+        # kernel reaches nothing, `blur` is num/max(den, eps) ~ 0 and would paint black
+        est = np.where(ev[..., None], est, np.where(vv[..., None], blur, est))
         ev = ev | vv
     if not ev.all():                      # degenerate: no valid data anywhere near
         if ev.any():
@@ -142,9 +148,16 @@ def hhf_fill(img, valid, sigma=1.0, ksize=5, min_size=8, coarse_iters=16,
             up = up[..., None]
         out = np.where(v_k[..., None], img_k, up)
         for _ in range(refine_iters):
-            blur, _ = _masked_blur(out, v_k, sigma, ksize)
-            out = np.where(v_k[..., None], out, blur)
-    return out[..., 0] if squeeze else out
+            blur, sup_k = _masked_blur(out, v_k, sigma, ksize)
+            # unsupported pixels keep the upsampled coarser estimate (a real colour from
+            # the neighbourhood) rather than the ~0 produced by an empty kernel
+            out = np.where(v_k[..., None], out,
+                           np.where(sup_k[..., None], blur, out))
+    res = out[..., 0] if squeeze else out
+    if return_support:
+        _, sup = _masked_blur(res, v, sigma, ksize)
+        return res, sup
+    return res
 
 
 # --------------------------------------------------------------------------- #
@@ -256,7 +269,7 @@ def bg_side_fill(I_w, D_w, crack, valid, lam=5.0, max_reach=8):
 
 def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
                 hhf_ksize=5, shape_filter="none", max_thickness=3.0,
-                fill_mode="hhf"):
+                fill_mode="hhf", slit_only=False):
     """Detect cracks in D_w, refill D_w from D_hat, and refill I_w with HHF.
 
     shape_filter
@@ -267,6 +280,14 @@ def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
         "thin"  empty cracks are additionally restricted to hole components whose
                 thickness is <= max_thickness (i.e. real 1-2 px slivers); translucent
                 cracks (not holes) are kept as detected.
+    slit_only
+        Per-pixel version of that idea and the reliable one: a crack is a THIN slit, so the
+        hole's local half-width (distance transform) must stay <= max_thickness / 2 in a
+        small neighbourhood.  Without it the raw rule also flags the caps/edges of LARGE
+        disocclusion holes (they have valid content within the line SE and D_w carries the
+        -1 sentinel there), and those pixels are then "fixed" by HHF instead of by the
+        exemplar filling stage - the cause of the non-black/half-filled holes seen in
+        practice.  Rejected pixels stay in `remaining_holes` and are filled normally.
 
     Returns a dict with crack mask, D_hat, diff, filled colour/depth and the remaining
     (non-crack) hole mask.
@@ -279,6 +300,14 @@ def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
         crack, D_hat, diff = detect_cracks(D_w, lam, se_len, orientation)
         extra = {}
     crack_raw = crack.copy()
+    big_hole_px = 0
+    if slit_only:
+        dt = cv2.distanceTransform(hole.astype(np.uint8), cv2.DIST_L2, 5)
+        rad = int(np.ceil(max_thickness)) + 1
+        local = cv2.dilate(dt, np.ones((2 * rad + 1, 2 * rad + 1), np.uint8))
+        thin = local <= max(1.0, max_thickness / 2.0)
+        big_hole_px = int((crack & hole & ~thin).sum())
+        crack = (crack & ~hole) | (crack & hole & thin)
     if shape_filter == "thin":
         _, lab = component_stats(hole)
         thin = {r["label"] for r in component_stats(hole)[0]
@@ -291,7 +320,10 @@ def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
     valid = ~(hole | crack)
     D_filled = np.asarray(D_w, np.float32).copy()
     D_filled[crack] = D_hat[crack]
-    I_hhf = hhf_fill(np.asarray(I_w, np.float32), valid, sigma=hhf_sigma, ksize=hhf_ksize)
+    I_hhf, sup_hhf = hhf_fill(np.asarray(I_w, np.float32), valid, sigma=hhf_sigma,
+                              ksize=hhf_ksize, return_support=True)
+    # colour and depth are written together, so every pixel the depth map declares filled
+    # also carries a real colour (never the ~0 of an empty kernel)
     I_filled = np.where(crack[..., None], I_hhf, I_w) if I_w.ndim == 3 else \
         np.where(crack, I_hhf, I_w)
     bg_done = None
@@ -310,6 +342,8 @@ def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
             I_filled = np.where(use, bg_col, I_filled)
     res = dict(crack=crack, crack_raw=crack_raw, D_hat=D_hat, diff=diff, D_filled=D_filled,
                bg_side_px=int(0 if bg_done is None else bg_done.sum()),
+               big_hole_crack_px=int(big_hole_px),
+               hhf_unsupported_px=int((crack & ~sup_hhf).sum()),
                I_hhf=I_hhf, I_filled=I_filled, hole=hole,
                remaining_holes=hole & ~crack,
                empty_crack=crack & hole, translucent_crack=crack & ~hole)

@@ -55,6 +55,13 @@ class FillConfig:
     # On the seam metric (jump at the filled/background junction) none of them beats hhf,
     # so hhf stays the default; the real lever is depth_dilate below (see 复现方案.md 9.7).
     crack_fill: str = "hhf"
+    # Crack detection is a rule about THIN slits.  The raw paper rule (D_hat - D >= lam)
+    # also fires on the caps/edges of LARGE disocclusion holes, because D_w carries the -1
+    # sentinel there and valid depth sits within the line SE; those pixels were then handed
+    # to HHF instead of the exemplar stage, and HHF could leave them black.  slit_only adds
+    # the per-pixel thin-slit test (local hole half-width <= max_thickness/2) so they stay
+    # holes.  Measured on cam6->cam7 f000: see 复现方案.md 11.
+    slit_only: bool = True
     # Widen the splat footprint before warping so that a fast disparity ramp at a
     # silhouette does not leave a 1-2 px crack network (the main source of the visible seam
     # at the filled/background junction).  int n = n iterations of a 3x3 max filter

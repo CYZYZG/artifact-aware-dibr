@@ -39,6 +39,7 @@ def fill_holes(image, inv_depth, scale=-44.8, *,
                # ---- II-A cracks -------------------------------------------------------
                lam=5.0, se_len=4, se_orientation="auto", crack_shape="none",
                crack_fill="hhf", hhf_sigma=1.0, hhf_ksize=5, max_thickness=3.0,
+               slit_only=True,
                # ---- II-B ghosts -------------------------------------------------------
                skip_ghosts=False, fix_mode="copy", band_radius=2, alpha_trim=0.10,
                # ---- II-C classification + patch filling -------------------------------
@@ -190,6 +191,7 @@ def fill_holes(image, inv_depth, scale=-44.8, *,
     cfg = FillConfig(scale=scale, splat=splat, rule=rule, depth_dilate=depth_dilate,
                      lam=lam, se_len=se_len, se_orientation=se_orientation,
                      crack_shape=crack_shape, crack_fill=crack_fill,
+                     slit_only=slit_only,
                      hhf_sigma=hhf_sigma, hhf_ksize=hhf_ksize,
                      max_thickness=max_thickness,
                      skip_ghosts=skip_ghosts, fix_mode=fix_mode,
