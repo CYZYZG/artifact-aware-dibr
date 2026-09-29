@@ -12,6 +12,12 @@ with `inv` in [0, 1] (near = 1), `total_pct = 0.03` (total span) and `far_pct = 
 moves -0.5 % W and the left eye +0.5 % W (out of screen); at inv = 0 (farthest) the right
 eye moves +1 % W and the left eye -1 % W (into screen); inv = 2/3 sits on the screen plane.
 
+`slit_only=False` (the paper's faithful behaviour) is used by default: at the small
+disparities of 2D->3D the whole silhouette band is 1-3 px thin, and letting the crack
+filler (HHF, horizontal interpolation) handle it looks smoother than sending it to the
+exemplar inpainter (measured on one frame: 5527 px vs 695 px to HHF, 653 vs 1111 patch
+iterations, 4.3 s vs 6.7 s, residual 0 either way).
+
 The paper's ghost step (II-B) is DISABLED by default here: it is the only stage that
 rewrites *valid* foreground pixels (measured 917 px with changes up to 144 grey levels on
 one frame, 0 px once disabled), and it was already measured as ~noise in this project, so
@@ -48,7 +54,7 @@ def disparity_fields(inv01, width=None, total_pct=0.03, near_pct=0.01):
 
 
 def stereo_pair(rgb, inv_depth, cfg=None, total_pct=0.03, near_pct=0.01, log=None,
-                translucent="keep", skip_ghosts=True):
+                translucent="keep", skip_ghosts=True, slit_only=False):
     """Warp + fill one frame into a left/right pair.
 
     Returns a dict with "left"/"right" (HxWx3 uint8), the displacement fields, and the
@@ -71,7 +77,8 @@ def stereo_pair(rgb, inv_depth, cfg=None, total_pct=0.03, near_pct=0.01, log=Non
         # an explicit displacement field: fill_warped takes it as-is (no re-warp check)
         eye_cfg = FillConfig(**{**cfg.as_dict(), "repair_warp": "never",
                                 "crack_translucent": translucent,
-                                "skip_ghosts": bool(skip_ghosts)})
+                                "skip_ghosts": bool(skip_ghosts),
+                                "slit_only": bool(slit_only)})
         res = fill_warped(I_w, hole, D_w, rgb, P, disp=(dx, None), cfg=eye_cfg, log=log)
         out[name] = res["filled"]
         s = res["stats"]

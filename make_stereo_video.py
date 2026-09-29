@@ -75,6 +75,8 @@ def main():
     ap.add_argument("--frames-dir", default="", help="每帧左右眼 PNG 的输出目录")
     ap.add_argument("--no-frames", action="store_true", help="不保存每帧 PNG")
     ap.add_argument("--panel-every", type=int, default=10, help="每 N 帧存一张三联对照图")
+    ap.add_argument("--slit-only", action="store_true",
+                    help="只把 1-2 px 细缝判为裂纹（默认关闭：放宽后整条轮廓带交给 HHF，更自然）")
     ap.add_argument("--ghosts", action="store_true",
                     help="启用论文 §II-B 的鬼影搬移（默认关闭：它会改写前景内完好像素）")
     ap.add_argument("--splat", default="sub", choices=["sub", "floor", "round"])
@@ -116,7 +118,7 @@ def main():
         t = time.time()
         rgb, inv = vio.load_pair(ip, dp)
         res = stereo_pair(rgb, inv, cfg=cfg, total_pct=total, near_pct=near, log=log,
-                          skip_ghosts=not a.ghosts)
+                          skip_ghosts=not a.ghosts, slit_only=a.slit_only)
         sbs = make_sbs(res["left"], res["right"], a.layout)
         vw.append(sbs)
         tag = frame_key(ip)

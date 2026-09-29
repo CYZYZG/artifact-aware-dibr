@@ -7,7 +7,7 @@ from typing import Tuple
 class FillConfig:
     # ---- warping -----------------------------------------------------------
     scale: float = -44.8
-    splat: str = "sub"        # sub (sub-pixel 2-tap, few cracks) | floor | round (integer)
+    splat: str = "sub"
     rule: str = "zbuf"        # zbuf (nearest source wins) | avg (weight average)
     # A warp produced elsewhere may have a broken collision rule (e.g. the provided
     # warping.scatter_image with inverse_ordering=True lets the FAR sample win, which
