@@ -1,3 +1,5 @@
 numpy>=2.0
 opencv-python-headless>=4.9
 scipy>=1.11
+imageio>=2.34
+imageio-ffmpeg>=0.5    # 自带静态 ffmpeg 的纯 Python 编码器（不用系统安装的 ffmpeg）

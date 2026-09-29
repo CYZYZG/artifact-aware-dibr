@@ -13,6 +13,8 @@ View Synthesis*, IEEE Signal Processing Letters, 2018, DOI 10.1109/LSP.2018.2870
 
 > 📘 **要直接用来填洞？先看 [`使用说明.md`](使用说明.md)**：需要哪些文件、如何调用、36 个参数的含义与默认值、常见场景配方与排错对照表。
 
+**2D 视频 → 3D 视频**：中间图 + 归一化逆深度 → 左右眼 → full-SBS 视频，`python make_stereo_video.py --images input --depths input --out out/sbs.mp4`（公式与参数见 `逆深度转视差.md` 与 `使用说明.md` §11）。
+
 ## 两个入口：复现实验 vs 通用工具
 
 | | 用途 | 入口 |

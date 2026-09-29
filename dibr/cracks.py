@@ -162,7 +162,7 @@ def hhf_fill(img, valid, sigma=1.0, ksize=5, min_size=8, coarse_iters=16,
 
 def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
                 hhf_ksize=5, shape_filter="none", max_thickness=3.0,
-                slit_only=False):
+                slit_only=False, translucent="hhf"):
     """Detect cracks in D_w, refill D_w from D_hat, and refill I_w with HHF.
 
     shape_filter
@@ -207,6 +207,15 @@ def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
                 if r["thickness"] <= max_thickness}
         keep = np.isin(lab, list(thin)) if thin else np.zeros_like(hole)
         crack = (crack & hole & keep) | (crack & ~hole)
+    if translucent == "keep":
+        # A *translucent* crack pixel is only partially covered, so its blended colour is
+        # already close to the right anti-aliased edge; replacing it with the HHF median
+        # leaves a visible outline along every silhouette.  Keep those pixels and fill only
+        # the empty slivers.
+        translucent_kept = crack & ~hole
+        crack = crack & hole
+    else:
+        translucent_kept = np.zeros_like(crack)
     # NOTE: a crack is NOT necessarily an empty pixel.  Empty cracks carry the -1
     # sentinel, while *translucent* cracks carry real (but too small) disparity and a
     # wrong texture; the paper asks for both to be detected.  Both are invalidated.
@@ -221,6 +230,7 @@ def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
         np.where(crack, I_hhf, I_w)
     res = dict(crack=crack, crack_raw=crack_raw, D_hat=D_hat, diff=diff, D_filled=D_filled,
                big_hole_crack_px=int(big_hole_px),
+               translucent_kept_px=int(translucent_kept.sum()),
                hhf_unsupported_px=int((crack & ~sup_hhf).sum()),
                I_hhf=I_hhf, I_filled=I_filled, hole=hole,
                remaining_holes=hole & ~crack,
