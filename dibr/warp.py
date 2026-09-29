@@ -2,7 +2,6 @@
 
 Three implementations
     forward_warp            adopted: vectorised, sub-pixel splat, Z-buffer (nearest wins)
-    forward_warp_bruteforce reference: same rules, plain python loops (used to validate)
     scatter_image           the provided warping.py, kept only as an A/B baseline
 """
 import numpy as np
@@ -146,75 +145,5 @@ def _splat_2d(dx, dy):
     return out
 
 
-# --------------------------------------------------------------------------- #
-# brute-force reference (validation only)
-# --------------------------------------------------------------------------- #
-def forward_warp_bruteforce(color, dx, dy=None, z=None, hole_depth=-1.0, tol=1e-9,
-                            rule="zbuf"):
-    """Same rules as forward_warp, written as an explicit per-source-pixel loop.
-
-    Intended for small crops: validates the vectorised Z-buffer bookkeeping.
-    Note `dx`/`dy` are re-interpreted as *relative* coordinates, so a crop origin can be
-    passed by shaving the arrays; the caller is responsible for using the same origin.
-    """
-    color = np.asarray(color, dtype=np.float64)
-    dx = np.asarray(dx, dtype=np.float64)
-    h, w = dx.shape
-    c = color.shape[2] if color.ndim == 3 else 1
-    src = color.reshape(h, w, c)
-    z = np.ones((h, w)) if z is None else np.asarray(z, dtype=np.float64)
-    if dy is None:
-        dy = np.zeros_like(dx)
-    else:
-        dy = np.asarray(dy, dtype=np.float64)
-
-    zbuf = np.full((h, w), -np.inf)
-    acc_c = np.zeros((h, w, c))
-    acc_w = np.zeros((h, w))
-    for y in range(h):
-        for x in range(w):
-            txx, tyy = x + dx[y, x], y + dy[y, x]
-            x0, y0 = int(np.floor(txx)), int(np.floor(tyy))
-            wx, wy = txx - x0, tyy - y0
-            contrib = [(x0 + ox, y0 + oy, ww)
-                       for ox, oy, ww in ((0, 0, (1 - wx) * (1 - wy)), (1, 0, wx * (1 - wy)),
-                                          (0, 1, (1 - wx) * wy), (1, 1, wx * wy))
-                       if ww > tol and 0 <= x0 + ox < w and 0 <= y0 + oy < h]
-            if rule == "zbuf":
-                for tx, ty, _ww in contrib:
-                    if z[y, x] > zbuf[ty, tx]:
-                        zbuf[ty, tx] = z[y, x]
-                        acc_c[ty, tx] = 0.0
-                        acc_w[ty, tx] = 0.0
-            for tx, ty, ww in contrib:
-                if rule == "zbuf" and abs(z[y, x] - zbuf[ty, tx]) > 1e-12:
-                    continue
-                acc_c[ty, tx] += src[y, x] * ww
-                acc_w[ty, tx] += ww
-                if rule != "zbuf":
-                    zbuf[ty, tx] = max(zbuf[ty, tx], z[y, x])
-    valid = acc_w > 0
-    out_c = np.zeros((h, w, c))
-    out_c[valid] = acc_c[valid] / acc_w[valid][:, None]
-    out_z = np.full((h, w), hole_depth)
-    if rule == "zbuf":
-        out_z[valid] = zbuf[valid]
-    else:
-        out_z[valid] = zbuf[valid]
-    if c == 1:
-        out_c = out_c[:, :, 0]
-    return out_c, out_z, ~valid, acc_w
 
 
-# --------------------------------------------------------------------------- #
-# provided baseline (no Z-buffer)
-# --------------------------------------------------------------------------- #
-def scatter_image(*args, **kwargs):
-    """Delegate to the provided warping.scatter_image (import kept lazy)."""
-    import os
-    import sys
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if root not in sys.path:
-        sys.path.insert(0, root)
-    from warping import scatter_image as _impl
-    return _impl(*args, **kwargs)

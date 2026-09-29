@@ -119,13 +119,6 @@ def boundary_thresholds(D_w, hole, alpha=0.10, radius=1):
     return T, lab_near
 
 
-def background_mask(D_w, T, lab_near):
-    """M_BG = 1 where the disparity says background.  Disparity larger = nearer = FG
-    (paper II-A), so background is  disparity <= T_O."""
-    Tmap = T[np.clip(lab_near, 0, len(T) - 1)]
-    return (D_w <= Tmap) & (lab_near > 0)
-
-
 def extended_fg(P_ref, se_len=4, orientation="h"):
     """D_FG = dilate(dilate(D, H), H^T): the foreground disparity grown in both axes."""
     from . import cracks

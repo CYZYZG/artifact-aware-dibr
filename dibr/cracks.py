@@ -160,116 +160,9 @@ def hhf_fill(img, valid, sigma=1.0, ksize=5, min_size=8, coarse_iters=16,
     return res
 
 
-# --------------------------------------------------------------------------- #
-# joint step
-# --------------------------------------------------------------------------- #
-def _side_neighbours(I_w, D_w, valid, max_reach=8):
-    """Nearest valid pixel to the left / right along each row, with its distance."""
-    H, W = valid.shape
-    C = I_w.shape[2] if I_w.ndim == 3 else 1
-    src = np.asarray(I_w, np.float32).reshape(H, W, C)
-    D = np.asarray(D_w, np.float32)
-    ys = np.arange(H)[:, None].repeat(W, 1)
-    xs = np.arange(W)[None, :].repeat(H, 0)
-    out = {}
-    for side in ("l", "r"):
-        col = np.zeros((H, W, C), np.float32)
-        dd = np.full((H, W), np.nan, np.float32)
-        dist = np.full((H, W), np.inf, np.float32)
-        found = np.zeros((H, W), bool)
-        for k in range(1, max_reach + 1):
-            xk = xs - k if side == "l" else xs + k
-            inb = (xk >= 0) & (xk < W) & ~found
-            if not inb.any():
-                continue
-            xc = np.clip(xk, 0, W - 1)
-            ok = inb & valid[ys, xc]
-            if ok.any():
-                col[ok] = src[ys[ok], xc[ok]]
-                dd[ok] = D[ys[ok], xc[ok]]
-                dist[ok] = k
-                found[ok] = True
-        out[side] = (col, dd, dist, found)
-    return out
-
-
-def interp_across(I_w, D_w, valid, crack, max_reach=6):
-    """Fill a thin crack by LINEAR interpolation between its two sides.
-
-    A 1-2 px crack is a missing sliver of a continuous image; interpolating across the gap
-    (perpendicular to the crack) continues the local texture, whereas copying from one side
-    shifts it by the copy distance (very visible on curtain stripes) and isotropic HHF
-    pulls the dark foreground into the sliver.  Returns (colour, mask).
-    """
-    H, W = crack.shape
-    C = I_w.shape[2] if I_w.ndim == 3 else 1
-    nb = _side_neighbours(I_w, D_w, valid, max_reach)
-    lcol, _ld, ldist, lfound = nb["l"]
-    rcol, _rd, rdist, rfound = nb["r"]
-    both = crack & lfound & rfound
-    w = (ldist / np.maximum(ldist + rdist, 1e-6))[:, :, None]
-    col = lcol * (1.0 - w) + rcol * w
-    if C == 1:
-        col = col[..., 0]
-    return col, both
-
-
-def bg_side_fill(I_w, D_w, crack, valid, lam=5.0, max_reach=8):
-    """Fill crack pixels from the BACKGROUND side of the depth discontinuity.
-
-    A crack that sits on a depth edge (|disparity on the two sides| >= lam) is a sliver of
-    revealed background.  HHF interpolates isotropically and therefore pulls the (usually
-    much darker) foreground edge into the sliver, which leaves a dark rim along the
-    silhouette.  Here such a crack pixel copies the nearest valid pixel of the background
-    side instead.  Cracks *inside* a uniform region (both sides the same disparity) are
-    left untouched so that HHF, as in the paper, fills them.
-
-    Returns (colour, mask) where mask marks the pixels handled here.
-    """
-    H, W = crack.shape
-    img = np.asarray(I_w, np.float32)
-    D = np.asarray(D_w, np.float32)
-    val = np.asarray(valid, bool)
-    C = img.shape[2] if img.ndim == 3 else 1
-    src = img.reshape(H, W, C)
-    out = np.zeros((H, W, C), np.float32)
-    done = np.zeros((H, W), bool)
-
-    # nearest valid pixel to the left / right along the row, plus its disparity
-    lcol = np.zeros((H, W, C), np.float32)
-    ld = np.full((H, W), np.nan, np.float32)
-    rcol = np.zeros((H, W, C), np.float32)
-    rd = np.full((H, W), np.nan, np.float32)
-    lfound = np.zeros((H, W), bool)
-    rfound = np.zeros((H, W), bool)
-    xs = np.arange(W)[None, :].repeat(H, 0)
-    ys = np.arange(H)[:, None].repeat(W, 1)
-    for k in range(1, max_reach + 1):
-        for side, xk, found, col, dd in ((0, xs - k, lfound, lcol, ld),
-                                        (1, xs + k, rfound, rcol, rd)):
-            inb = (xk >= 0) & (xk < W) & ~found
-            if not inb.any():
-                continue
-            ok = inb & val[ys, np.clip(xk, 0, W - 1)]
-            if ok.any():
-                col[ok] = src[ys[ok], np.clip(xk[ok], 0, W - 1)]
-                dd[ok] = D[ys[ok], np.clip(xk[ok], 0, W - 1)]
-                found[ok] = True
-
-    edge = np.isfinite(ld) & np.isfinite(rd) & (np.abs(ld - rd) >= lam)
-    sel_l = crack & edge & (ld <= rd) & lfound          # left side is the background
-    sel_r = crack & edge & (rd < ld) & rfound           # right side is the background
-    out[sel_l] = lcol[sel_l]
-    out[sel_r] = rcol[sel_r]
-    done = sel_l | sel_r
-    if C == 1:
-        out = out[..., 0]
-    return out, done
-
-
 def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
                 hhf_ksize=5, shape_filter="none", max_thickness=3.0,
-                fill_mode="hhf", slit_only=False):
+                slit_only=False):
     """Detect cracks in D_w, refill D_w from D_hat, and refill I_w with HHF.
 
     shape_filter
@@ -326,22 +219,7 @@ def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
     # also carries a real colour (never the ~0 of an empty kernel)
     I_filled = np.where(crack[..., None], I_hhf, I_w) if I_w.ndim == 3 else \
         np.where(crack, I_hhf, I_w)
-    bg_done = None
-    lin_done = None
-    if fill_mode in ("auto", "linear", "bg"):
-        if fill_mode in ("auto", "linear"):
-            lin_col, lin_done = interp_across(I_w, D_w, valid, crack)
-            use = lin_done[..., None] if I_w.ndim == 3 else lin_done
-            I_filled = np.where(use, lin_col, I_filled)
-        if fill_mode in ("auto", "bg"):
-            # cracks still without a two-sided support (e.g. at an image border, or a
-            # crack on a depth step wider than the reach) take the background side
-            rest = crack & ~(lin_done if lin_done is not None else False)
-            bg_col, bg_done = bg_side_fill(I_w, D_w, rest, valid, lam=lam)
-            use = bg_done[..., None] if I_w.ndim == 3 else bg_done
-            I_filled = np.where(use, bg_col, I_filled)
     res = dict(crack=crack, crack_raw=crack_raw, D_hat=D_hat, diff=diff, D_filled=D_filled,
-               bg_side_px=int(0 if bg_done is None else bg_done.sum()),
                big_hole_crack_px=int(big_hole_px),
                hhf_unsupported_px=int((crack & ~sup_hhf).sum()),
                I_hhf=I_hhf, I_filled=I_filled, hole=hole,

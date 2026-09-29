@@ -122,7 +122,7 @@ SEARCH_DIAG = {"nv0": 0, "region": 0, "nonfinite": 0, "calls": 0, "ok_empty": 0}
 def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=69,
                  sizes=(9, 7, 5, 3), beta=35.0, bg_only=True, beta_mode="mean",
                  require_full_valid=False, D_w=None, bg_template=False,
-                 require_full_bg=False, src_depth_tol=0.0, epipolar=None,
+                 epipolar=None,
                  struct_pen=0.0, edge_pen=0.0, edge_ref=6.0):
     """Best source patch in the reference image.  Returns (qy, qx, k, cost, n_cand, used_bg).
 
@@ -154,10 +154,6 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
     ok_crop = ero[y0 - my0: y1 - my0, x0 - mx0: x1 - mx0]
     # a wider margin (and a float copy) is needed when the WHOLE source patch has to be
     # background, so that no foreground pixel of the source can be copied into the hole
-    mm = max(m, max(sizes)) if require_full_bg else m
-    fy0, fx0 = max(0, y0 - mm), max(0, x0 - mm)
-    fy1, fx1 = min(H, y1 + mm), min(W, x1 + mm)
-    mbg_f = (ref_depth[fy0:fy1, fx0:fx1] <= T).astype(np.float32) if require_full_bg else None
     used_bg = False
     SEARCH_DIAG["calls"] += 1
     w_struct = 0.0
@@ -212,25 +208,8 @@ def search_patch(I_w, valid, ref_color, ref_depth, py, px, wy, wx, T, n_window=6
                                  borderType=cv2.BORDER_CONSTANT)
             fc = (full >= k * k - 1e-6)[y0 - my0: y1 - my0, x0 - mx0: x1 - mx0]
             cand &= fc[r: r + ssd.shape[0], r: r + ssd.shape[1]]
-        if src_depth_tol > 0:
-            # the source patch must sit inside ONE depth layer: a patch straddling a depth
-            # edge carries that edge (usually the dark silhouette or its shadow) into the
-            # hole, which is what leaves a ghost contour along the seam
-            dd = ref_depth[my0:my1, mx0:mx1].astype(np.float32)
-            mu = cv2.boxFilter(dd, -1, (k, k), normalize=True,
-                               borderType=cv2.BORDER_REPLICATE)
-            var = cv2.boxFilter(dd * dd, -1, (k, k), normalize=True,
-                                borderType=cv2.BORDER_REPLICATE) - mu * mu
-            flat = np.sqrt(np.maximum(var, 0.0)) <= src_depth_tol
-            fc = flat[y0 - my0: y1 - my0, x0 - mx0: x1 - mx0]
-            cand &= fc[r: r + ssd.shape[0], r: r + ssd.shape[1]]
         if bg_only:
             ok = ok_crop[r: r + ssd.shape[0], r: r + ssd.shape[1]]
-            if require_full_bg and mbg_f is not None:
-                fb = cv2.boxFilter(mbg_f, -1, (k, k), normalize=False,
-                                   borderType=cv2.BORDER_CONSTANT)
-                fbc = (fb >= k * k - 1e-6)[y0 - fy0: y1 - fy0, x0 - fx0: x1 - fx0]
-                ok = ok & fbc[r: r + ssd.shape[0], r: r + ssd.shape[1]]
             if ok.any():
                 cand = ok
                 used_bg = True
@@ -352,8 +331,7 @@ def fill_component(I_w, D_w, valid, lab, k, bbox, src_of, ref_color, ref_depth, 
                              params.get("beta_mode", "mean"),
                              require_full_valid=full_valid, D_w=D_w,
                              bg_template=params.get("bg_template", False),
-                             require_full_bg=params.get("require_full_bg", False),
-                             src_depth_tol=params.get("src_depth_tol", 0.0),
+
                              epipolar=params.get("epipolar", None),
                              struct_pen=params.get("struct_pen", 0.0),
                              edge_pen=params.get("edge_pen", 0.0),

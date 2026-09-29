@@ -70,9 +70,6 @@ def _prep_depth(depth255, cfg):
     mode = getattr(cfg, "depth_dilate", 0)
     if isinstance(mode, str) and mode.lower().startswith("auto"):
         # "auto" / "auto5" / "auto7": smooth the demand map with a 3x3 / 5x5 / 7x7 max
-        # filter before applying it.  A hard boundary between "widened" and "untouched"
-        # disparity would itself create new thin holes there, which is what left visible
-        # lines along the silhouette in the first "auto" version.
         k3 = np.ones((3, 3), np.uint8)
         w = int(mode[4:]) if len(mode) > 4 else 3
         gx = cv2.Sobel(d, cv2.CV_32F, 1, 0, ksize=3) / 8.0     # per-pixel dD/dx
@@ -162,12 +159,10 @@ def _run_pipeline(I_w, D_w, hole, ref_rgb, ref_depth255, disp, cfg, log=None):
         I_w, D_w, lam=cfg.lam, se_len=cfg.se_len, orientation=orient,
         hhf_sigma=cfg.hhf_sigma, hhf_ksize=cfg.hhf_ksize,
         shape_filter=cfg.crack_shape, max_thickness=cfg.max_thickness,
-        fill_mode=getattr(cfg, "crack_fill", "auto"),
         slit_only=getattr(cfg, "slit_only", True))
     I_w, D_w = res1["I_filled"], res1["D_filled"]
     hole = res1["remaining_holes"]
     stats.update(se_orientation=orient,
-                 crack_bg_side_px=int(res1.get("bg_side_px", 0)),
                  crack_big_hole_px=int(res1.get("big_hole_crack_px", 0)),
                  hhf_unsupported_px=int(res1.get("hhf_unsupported_px", 0)),
                  crack_px=int(res1["crack"].sum()),

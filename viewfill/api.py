@@ -38,7 +38,7 @@ def fill_holes(image, inv_depth, scale=-44.8, *,
                splat="sub", rule="zbuf", depth_dilate="auto7",
                # ---- II-A cracks -------------------------------------------------------
                lam=5.0, se_len=4, se_orientation="auto", crack_shape="none",
-               crack_fill="hhf", hhf_sigma=1.0, hhf_ksize=5, max_thickness=3.0,
+               hhf_sigma=1.0, hhf_ksize=5, max_thickness=3.0,
                slit_only=True,
                # ---- II-B ghosts -------------------------------------------------------
                skip_ghosts=False, fix_mode="copy", band_radius=2, alpha_trim=0.10,
@@ -47,8 +47,8 @@ def fill_holes(image, inv_depth, scale=-44.8, *,
                ksize=9, n_window=69, sizes=(9, 7, 5, 3),
                beta=150.0, beta_mode="mean", max_iter=400000,
                # ---- patch search priors ----------------------------------------------
-               struct_pen=8.0, edge_pen=15.0, edge_ref=6.0, epipolar=None, src_depth_tol=0.0,
-               bg_template=True, require_full_bg=False,
+               struct_pen=8.0, edge_pen=15.0, edge_ref=6.0, epipolar=None,
+               bg_template=True,
                # ---- misc --------------------------------------------------------------
                seed=0, return_info=False, verbose=False):
     """Fill the holes produced by warping `image` with disparity = inv_depth * scale.
@@ -86,35 +86,6 @@ def fill_holes(image, inv_depth, scale=-44.8, *,
     se_len : length of the line structuring element (paper: 4).
     se_orientation : "auto" (default) | "v" | "h" | "both" - the line SE must cross the slit.
     crack_shape : "none" (default) | "thickness" - extra shape filter for the crack mask.
-    crack_fill : "hhf" (default, the paper's isotropic hierarchical fill) | "linear"
-        (interpolate across a thin crack) | "bg" (copy the background side).  Both
-        alternatives were measured to be no better ("bg" clearly worse).
-    hhf_sigma, hhf_ksize : hierarchical fill kernel.
-
-    II-B ghosts (Sec. II-B)
-    -----------------------
-    skip_ghosts : skip the ghost search/relocation (measured to be within noise on the
-        development data; harmless to leave on).
-    fix_mode : "copy" (default) | "move" | "bg" - how the ghost is corrected.
-    band_radius : half width of the candidate band around the dilated background.
-    alpha_trim : trimmed fraction for the T_Omega thresholds (paper: 10 %).
-
-    II-C classification and filling (Sec. II-C)
-    -------------------------------------------
-    fg_side : "gt" (default) | "dilate" - how the foreground side of the band is taken.
-    alpha_sim : foreground/background similarity threshold (paper: 11).
-    oofa_frac : fraction of outlier displacements that marks the out-of-field side (0.5).
-    ksize : template/patch side used for the terms (paper: 9).
-    n_window : side of the square search window (paper: 69).
-    sizes : adaptive patch sizes tried in order (paper: 9 -> 3).
-    beta : acceptance threshold on the patch cost (default 150 on the per-pixel,
-        per-channel mean squared error scale; the paper's 35 sums over 3 channels x pixels
-        and is unreachable on 8-bit data).
-    beta_mode : "mean" (per-pixel MSE, default) | "sum".
-    max_iter : safety cap on fill iterations.
-
-    Patch-search priors (this implementation's additions)
-    -----------------------------------------------------
     struct_pen : structure-aware CROSS-ROW penalty (default 8.0).  A source patch may be
         borrowed from another row but pays struct_pen * w * dy**2, where dy is the row
         offset and w grows with the horizontal-structure strength around the hole.  On
@@ -131,13 +102,7 @@ def fill_holes(image, inv_depth, scale=-44.8, *,
         0 = 28.12/23.40/19.92.  The row offsets are real (58.8 % of patches, p90 22.7 px) but
         mostly BENEFICIAL: the correct background of a disocclusion is occluded in the
         reference at that very row, so a same-row pool cannot contain it.
-    src_depth_tol : reject source patches whose inverse-depth standard deviation exceeds this
-        tolerance (0 = off, default).  Measured to have no effect here (95 % of the patches
-        already sit inside one depth layer).
     bg_template : mask the template's foreground pixels out of the SSD (default True).
-    require_full_bg : demand that every pixel of the source patch is background
-        (default False; measured to have no effect here).
-
     Misc
     ----
     seed : kept for reproducibility of any future stochastic step (default 0).
@@ -190,7 +155,7 @@ def fill_holes(image, inv_depth, scale=-44.8, *,
 
     cfg = FillConfig(scale=scale, splat=splat, rule=rule, depth_dilate=depth_dilate,
                      lam=lam, se_len=se_len, se_orientation=se_orientation,
-                     crack_shape=crack_shape, crack_fill=crack_fill,
+                     crack_shape=crack_shape,
                      slit_only=slit_only,
                      hhf_sigma=hhf_sigma, hhf_ksize=hhf_ksize,
                      max_thickness=max_thickness,
@@ -201,8 +166,7 @@ def fill_holes(image, inv_depth, scale=-44.8, *,
                      beta=beta, beta_mode=beta_mode, max_iter=max_iter,
                      struct_pen=struct_pen, edge_pen=edge_pen, edge_ref=edge_ref,
                      epipolar=epipolar,
-                     src_depth_tol=src_depth_tol, bg_template=bg_template,
-                     require_full_bg=require_full_bg, seed=seed,
+                     bg_template=bg_template, seed=seed,
                      repair_warp="never")     # we do the warp ourselves, nothing to fix
     log = (lambda s: print(s, flush=True)) if verbose else None
     res = warp_and_fill(img3, d, cfg, reference=(img3, d), log=log)

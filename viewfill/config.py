@@ -6,9 +6,6 @@ from typing import Tuple
 @dataclass
 class FillConfig:
     # ---- warping -----------------------------------------------------------
-    # disparity in pixels = (depth normalised to 0..1) * scale.
-    # The 2D->3D convention this package was written for: scale = -44.8, i.e. content
-    # shifts LEFT by up to 44.8 px and the virtual view is to the RIGHT of the reference.
     scale: float = -44.8
     splat: str = "sub"        # sub (sub-pixel 2-tap, few cracks) | floor | round (integer)
     rule: str = "zbuf"        # zbuf (nearest source wins) | avg (weight average)
@@ -24,6 +21,7 @@ class FillConfig:
     lam: float = 5.0          # crack threshold on the 0..255 depth scale
     se_len: int = 4           # line structuring element length (paper: 4)
     se_orientation: str = "auto"   # auto | v | h | both  (SE must cross the slit)
+    bg_template: bool = True     # mask the template's FG pixels out of the SSD
     crack_shape: str = "none"      # none (paper) | thin (only thin hole components)
     max_thickness: float = 3.0
     hhf_sigma: float = 1.0
@@ -44,38 +42,9 @@ class FillConfig:
     beta: float = 150.0       # acceptance threshold on the normalised patch cost
     beta_mode: str = "mean"   # mean (per-pixel MSE; paper's 35 is unreachable on 8-bit) | sum
     max_iter: int = 400000
-    # Dark rim along the filled-region boundary: the template patch contains the (dark)
-    # foreground edge of the silhouette, so the matcher is driven to reproduce that edge
-    # inside the hole.  bg_template masks those pixels out of the SSD; require_full_bg
-    # additionally demands that no pixel of the source patch is foreground.
-    bg_template: bool = True
-    require_full_bg: bool = False
-    # Cracks lying on a depth step are disocclusion slivers: "linear" interpolates across
-    # them, "bg" copies the background side, "hhf" is the paper-faithful isotropic fill.
-    # On the seam metric (jump at the filled/background junction) none of them beats hhf,
-    # so hhf stays the default; the real lever is depth_dilate below (see 复现方案.md 9.7).
-    crack_fill: str = "hhf"
     # Crack detection is a rule about THIN slits.  The raw paper rule (D_hat - D >= lam)
-    # also fires on the caps/edges of LARGE disocclusion holes, because D_w carries the -1
-    # sentinel there and valid depth sits within the line SE; those pixels were then handed
-    # to HHF instead of the exemplar stage, and HHF could leave them black.  slit_only adds
-    # the per-pixel thin-slit test (local hole half-width <= max_thickness/2) so they stay
-    # holes.  Measured on cam6->cam7 f000: see 复现方案.md 11.
     slit_only: bool = True
     # Widen the splat footprint before warping so that a fast disparity ramp at a
-    # silhouette does not leave a 1-2 px crack network (the main source of the visible seam
-    # at the filled/background junction).  int n = n iterations of a 3x3 max filter
-    # everywhere; "auto"/"auto5"/"auto7" instead widen only where the disparity gradient
-    # demands it, with the demand map smoothed by a w x w max filter first.
-    # PAIRED test over 8 frames of cam6 -> cam7 with the CALIBRATED displacement field
-    # (seam mean +- sd / per-sample best / p90 / GT PSNR):
-    #   3      5.989 +- 0.756 (best 6/8)  15.796  28.231
-    #   auto7  6.080 +- 0.769 (best 2/8)  16.521  28.233   <- default
-    #   auto5  6.673 +- 0.884 (best 0/8)  17.560  28.062   (3 and auto7 both beat it)
-    # 3 vs auto7 is NOT significant on any metric (p = 0.38..0.84); auto7 is taken as the
-    # default for its (marginally) best mean GT PSNR, the smaller p90 spread (+-2.27 vs
-    # +-2.91) and its clearly better result on curtain-stripe content (e.g. frame f004,
-    # seam 5.68 vs 7.10) - see 复现方案.md 9.11 and _work/visual_cmp.py for the side-by-side.
 
 
     depth_dilate: object = "auto7"
@@ -86,16 +55,6 @@ class FillConfig:
     # structures (rails/barres) up or down inside the filled band.
     epipolar: object = None
     # STRUCTURE-AWARE CROSS-ROW PENALTY: a source patch may be borrowed from another
-    # row, but pays struct_pen * w * dy^2, where dy is the row offset and w grows with
-    # the horizontal-structure strength around the hole (mean |d/dy gray| / 2, clipped
-    # to 3).  Vertically homogeneous background keeps w ~ 0, so good cross-row matches
-    # stay free; near a rail/fence the penalty stops the vertical shift.
-    # Measured (2 frames; all / band / barre-row PSNR, row-offset p90 / max):
-    #   0.0  28.40/24.66/24.64  p90 22.5 max 49
-    #   0.5  28.26/24.00/25.08  p90  4.0 max 21
-    #   2.0  28.35/24.40/24.06  p90  2.0 max 16
-    #   8.0  28.41/24.74/24.42  p90  1.0 max  8  <- default (rail alignment best by visual check)
-    # Tune on your own content; 0 disables the term.
     struct_pen: float = 8.0
     # Low-texture protection: where the surroundings of a hole are smooth (plain wall), the
     # only informative content nearby is the dark baseboard / contact shadow, and the matcher
@@ -105,20 +64,7 @@ class FillConfig:
     edge_pen: float = 15.0
     edge_ref: float = 6.0
     # MEASURED VERDICT - constraining this does NOT help here.  Error decomposition over
-    # 2 frames (all / filled-band / barre-row PSNR): None 28.40/24.66/24.64 (default,
-    # best), 2 = 28.33/24.30/24.29, 0 = 28.12/23.40/19.92 (much worse, even on the
-    # barre rows).  The row offsets are real (58.8 % of patches, p90 22.7 px) but mostly
-    # BENEFICIAL: in a disocclusion the correct background is occluded in the reference
-    # at that very row, so a same-row candidate pool cannot contain it - borrowing the
-    # same background surface from another row is usually right.  Use 0/1/2 only when
-    # the background behind your objects has strong horizontal structure (rails, fences)
-    # that must not shift vertically.
 
-    # Reject source patches that straddle a depth edge (patch inverse-depth std above this
-    # tolerance, on the 0..255 depth scale).  Such a patch carries the dark silhouette edge
-    # or its shadow into the hole, which is what shows up as a ghost contour along the seam.
-    # 0 = off.  See 复现方案.md 9.10 for the measured effect.
-    src_depth_tol: float = 0.0
 
     # ---- misc --------------------------------------------------------------
     oofa_frac: float = 0.5
@@ -128,8 +74,7 @@ class FillConfig:
     def patch_params(self) -> dict:
         return dict(n_window=self.n_window, sizes=tuple(self.sizes), beta=self.beta,
                     beta_mode=self.beta_mode, max_iter=self.max_iter, splat=self.splat,
-                    bg_template=self.bg_template, require_full_bg=self.require_full_bg,
-                    src_depth_tol=self.src_depth_tol, epipolar=self.epipolar,
+                    bg_template=self.bg_template, epipolar=self.epipolar,
                     struct_pen=self.struct_pen,
                     edge_pen=self.edge_pen, edge_ref=self.edge_ref)
 

@@ -1,0 +1,29 @@
+清理仓库：删除复现驱动/断言套件、一次性工具与死代码，精简约 5 千行
+
+删除（均已确认无人调用，或用测量数据证明无价值）：
+- 复现驱动与断言套件：step0_calibrate / step1_warp / step2_cracks / step3_ghosts /
+  step4_inpaint / check_step1 / check_step2 / check_step3 / check_step4_7 / check_step8 /
+  run_all.py（共 1,804 行）
+- 随之零引用的模块：dibr/plot.py、dibr/calib.py
+- 一次性分析工具 9 个（sweep_all / sweep_stats / struct_pen / struct_pen_visual /
+  epipolar_check / epi_tradeoff / y_decompose / y_misalign / visual_cmp，共 703 行）
+- viewfill/blend.py（Poisson 边缘域融合，9.9 节已证明在本问题上为恒等变换）
+- 提供的演示/对比脚本 warp_and_visualize.py、z_buffer_warp.py（算法不使用）
+- 死代码：dibr.warp.scatter_image 适配器（产品模块反向依赖测试夹具）、
+  dibr.warp.forward_warp_bruteforce、calib.disparity_of_direction、ghosts.background_mask
+
+简化：
+- 移除实测更差/无效果的旋钮：crack_fill 的 linear/bg 模式、require_full_bg、src_depth_tol
+  及死字段 crack_fill；fill_holes 参数 39 -> 36
+- 代码中的实测数据长注释压缩为一行摘要（数据保留在 复现方案.md）
+- requirements.txt 只保留代码真正 import 的依赖（numpy / opencv / scipy）
+- 文档同步：顶部说明与自然表述，复现方案 10 节记录三轮清理与验证
+
+验证（必须项）：
+- 行为逐位一致：HEAD worktree 与清理后工作树在同样两帧上 SHA1 相同
+  （6b82169aecdd103e / 966b37d4c4f65d0d，迭代 4320/2372、回投 37.2330/37.4020 均相同）
+- test_viewfill.py 29/29；全部模块 import 正常；python -m viewfill CLI 正常（残留空洞 0）；
+  tools/final_sheet.py 与 demo_fill_holes.py 正常
+
+注意（公开 API 变更）：fill_holes 不再接受 crack_fill / require_full_bg / src_depth_tol
+三个参数（均为实测无效果或更差的实验项），FillConfig 相应字段一并移除。

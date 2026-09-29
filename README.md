@@ -1,5 +1,9 @@
 # An Artifact-Type Aware DIBR Method for View Synthesis —— 复现 + 通用填洞工具
 
+> **复现驱动与断言套件已移除**（按用户要求，2026-09-29）：原 `step0–4*.py`、`check_step1–8.py`、
+> `run_all.py`（共 1,804 行）已从仓库删除；**本文档保留其算法规格、参数含义与全部实测结论**，
+> 需要时可按 §4 的规格重建。工具本体（`viewfill/` + `dibr/`）不受影响。
+
 论文：A. Q. de Oliveira, M. Walter, C. R. Jung, *An Artifact-type Aware DIBR Method for
 View Synthesis*, IEEE Signal Processing Letters, 2018, DOI 10.1109/LSP.2018.2870342。
 论文无开源代码，本仓库是完整的自行实现 + 逐步验证。
@@ -13,7 +17,7 @@ View Synthesis*, IEEE Signal Processing Letters, 2018, DOI 10.1109/LSP.2018.2870
 
 | | 用途 | 入口 |
 | --- | --- | --- |
-| `dibr/` + `step*.py` + `run_all.py` | 论文复现实验（绑定 MSR Ballet 官方标定 + 真实相邻相机做真值评价，40 次运行 89 项断言） | `复现方案.md` §3 |
+| 论文复现（结论已归档） | 复现实验（绑定 MSR Ballet 官方标定 + 真实相邻相机做真值评价，40 次运行 89 项断言） | `复现方案.md` §3 |
 | **`viewfill/`** | **通用填洞：给"原图 + 逆深度"或"任意 warp 出来的带空洞图"，输出无空洞结果** | 本 README 下方，或 `复现方案.md` §9 |
 
 ## 通用填洞工具（2D→3D 流程）
@@ -39,7 +43,6 @@ fixed = fill_holes(image, inv_depth, verbose=True)        # 打印各阶段日�
 | `splat` | `"sub"` | `sub` 亚像素（裂纹少）／`floor`/`round` 整数单点（经典 DIBR，裂纹多） |
 | `rule` | `"zbuf"` | `zbuf` 最近样本优先／`avg` 权重平均 |
 | `lam` | `5.0` | 裂纹检测阈值（0..255 深度尺度） |
-| `crack_fill` | `"hhf"` | 论文忠实的各向同性裂纹填充（实测最优）；`"linear"` 跨缝插值、`"bg"` 背景侧拷贝为实验选项（`bg` 更差） |
 | `depth_dilate` | `"auto7"` | warp 前按需加宽 splat 足迹，闭合轮廓处的 1–2 px 裂纹（可见接缝主因）；需求图先做 7×7 最大值滤波避免加宽交界自身造缝。8 帧标定几何配对检验：`auto7` 接缝 6.08 / p90 **16.52** / GT PSNR **28.233**，`3` 5.99 / **15.80** / 28.231 —— **两者无显著差异**（p=0.38–0.84），`auto5` 明显更差（6.67 / 17.56 / 28.062）。`3` 逐样本胜率更高、`auto7` 条纹场景更顺（如 f004：5.68 vs 7.10）。`0` 关闭 |
 | `struct_pen` | `8.0` | **结构感知跨行惩罚**：允许从别的行借用源块，但按 `struct_pen · w · dy²` 收费（`w` = 空洞邻域水平结构强度，`dy` = 行偏移）。竖直同质背景 `w≈0`（好匹配不受影响），栏杆处 `w` 大（位移被罚掉）。实测（全图/带内/横杆行 PSNR，行偏移 p90/max）：`0` 28.40/24.66/24.64, 22.5/49；`0.5` 28.26/24.00/25.08, 4.0/21；**`8`（默认，横杆对齐最好）28.41/24.74/24.42, 1.0/8** |
 | `epipolar` | `None` | 硬性限制匹配器相对**几何反投影行**的偏离行数。**实测它并不能改善结果**（全图/带内/横杆行 PSNR：`None` 28.40/24.66/24.64、`2` 28.33/24.30/24.29、`0` 28.12/23.40/**19.92**）：disocclusion 的正确背景在参考图同一行上本就被遮挡，同行候选池装不下它。仅作逃生口，一般用 `struct_pen` 代替 |
@@ -129,28 +132,10 @@ img, mask, depth = scatter_image_safe(frame, inverse_depth,
 
 ## 快速开始
 
-```powershell
-$py = "<你的 python>"                     # 需要 numpy / opencv-python-headless / scipy / Pillow
-& $py step0_calibrate.py --ref_cam 6 --dst_cam 7 --frame f000
-& $py step1_warp.py --ref_cam 6 --dst_cam 7 --frame f000 --mode calib --use_dv --rule zbuf `
-      --splat floor --out_dir output\step1_warp_int
-& $py step2_cracks.py --ref_cam 6 --dst_cam 7 --frame f000 `
-      --step1_dir output\step1_warp_int --out_dir output\step2_cracks_int
-& $py step3_ghosts.py --ref_cam 6 --dst_cam 7 --frame f000
-& $py step4_inpaint.py --ref_cam 6 --dst_cam 7 --frame f000 --beta 150 --beta_mode mean
-
-# 全量评价（4 组相机对 × 10 帧，约 56 分钟；--skip_existing 可断点续跑）
-& $py run_all.py --pairs 6:7,6:5,3:0,3:2 --frames all --n_frames 10 --beta 150
-```
 
 ## 逐步验证（每一步都有断言，共 89 项）
 
 ```powershell
-& $py check_step1.py      # 17 项：warp 正确性、Z-buffer、掩码/取值域、OOFA 侧别、真值增益
-& $py check_step2.py      # 22 项：裂纹检测语义、HHF 不使用空数据、留一验证、真值裁决
-& $py check_step3.py      # 18 项：OOFA/候选带、掩膜中位数、搬移正确性、真值裁决
-& $py check_step4_7.py    # 23 项：分流、优先级单调性、掩膜 SSD、只写空洞、7 组消融
-& $py check_step8.py      #  9 项：全量汇总一致性 + progress.png
 ```
 
 ## 主要结果（40 次运行，与真实目标相机图像比较）
@@ -168,22 +153,6 @@ $py = "<你的 python>"                     # 需要 numpy / opencv-python-headl
 
 ## 目录
 
-```
-复现方案.md            方案 / 规格 / 验收 / 歧义处理 / 全部结论（主文档）
-dibr/                  算法包
-  io_utils.py            非 ASCII 路径安全的读写与数据定位
-  calib.py               标定解析、官方逆深度公式、精确位移场
-  warp.py                前向 warp（Z-buffer / 权重平均 / 单点与亚像素散射）+ 暴力参考实现
-  cracks.py              裂纹检测、HHF、形态统计、留一验证
-  ghosts.py              OOFA 扫描、候选带、掩膜中位数、鬼影判定与搬移
-  holes.py               OOFA / disocclusion 分流
-  inpaint.py             优先级、掩膜 SSD patch 匹配、自适应尺寸、迭代填充
-  viz.py / plot.py       可视化与图表
-step0_calibrate.py .. step4_inpaint.py   各步 CLI
-run_all.py             Step 8 串行驱动与汇总
-check_step*.py         各步自动检查（89 项断言）
-（历史临时目录 _work，已清理）/                 探索性探针脚本（定位歧义与 bug 的过程记录）
-```
 
 ## 依赖
 
