@@ -31,8 +31,9 @@ import time
 import numpy as np
 
 from dibr import warp as _warp
+from dibr.cracks import bg_side_fill, disocclusion_mask
 from .config import FillConfig
-from .pipeline import depth_to_scale255, fill_warped
+from .pipeline import depth_to_scale255, fill_warped, auto_se_orientation
 
 __all__ = ["disparity_fields", "stereo_pair", "make_sbs"]
 
@@ -54,7 +55,8 @@ def disparity_fields(inv01, width=None, total_pct=0.03, near_pct=0.01):
 
 
 def stereo_pair(rgb, inv_depth, cfg=None, total_pct=0.03, near_pct=0.01, log=None,
-                translucent="keep", skip_ghosts=True, slit_only=False):
+                translucent="keep", skip_ghosts=True, slit_only=True,
+                bg_extend=False, surf_tol=20.0):
     """Warp + fill one frame into a left/right pair.
 
     Returns a dict with "left"/"right" (HxWx3 uint8), the displacement fields, and the
@@ -74,9 +76,22 @@ def stereo_pair(rgb, inv_depth, cfg=None, total_pct=0.03, near_pct=0.01, log=Non
         dx = np.ascontiguousarray(dx, np.float32)
         I_w, D_w, hole, _ = _warp.forward_warp(rgb, dx, None, z=P, hole_depth=-1.0,
                                                rule="zbuf", splat=cfg.splat)
+        # Disocclusion bands are exposed *background*: extend them from the background side
+        # and keep them away from the crack filler (which interpolates towards the
+        # foreground and would paint a ghost of the silhouette into the background).
+        orient = auto_se_orientation(dx, dx * 0.0)
+        diso = disocclusion_mask(D_w, hole, surf_tol=surf_tol, orientation=orient)
+        if bg_extend and diso.any():
+            # NOTE: one-directional background replication.  It guarantees the band takes
+            # background colour, but replicating a single column across a wide band smears
+            # (streaks on textured backgrounds), so it is OFF by default and kept as an
+            # experiment; `diso` is still reported for diagnostics.
+            I_w, D_w = bg_side_fill(I_w, D_w, hole, diso, orientation=orient)
+            hole = hole & ~diso
         # an explicit displacement field: fill_warped takes it as-is (no re-warp check)
         eye_cfg = FillConfig(**{**cfg.as_dict(), "repair_warp": "never",
                                 "crack_translucent": translucent,
+                                "crack_same_surface": True,
                                 "skip_ghosts": bool(skip_ghosts),
                                 "slit_only": bool(slit_only)})
         res = fill_warped(I_w, hole, D_w, rgb, P, disp=(dx, None), cfg=eye_cfg, log=log)
@@ -84,6 +99,7 @@ def stereo_pair(rgb, inv_depth, cfg=None, total_pct=0.03, near_pct=0.01, log=Non
         s = res["stats"]
         out["stats"][name] = dict(
             hole_px=int(hole.sum()), hole_pct=float(hole.mean() * 100),
+            disocclusion_px=int(diso.sum()),
             residual=int(res["remaining"].sum()), iterations=int(s.get("iterations", 0)),
             back_proj_before=s.get("back_proj_psnr_before"),
             back_proj_after=s.get("back_proj_psnr_after"), seconds=time.time() - t)

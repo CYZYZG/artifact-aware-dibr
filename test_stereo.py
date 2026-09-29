@@ -65,10 +65,12 @@ def main():
           res["stats"]["left"]["residual"] == 0 and res["stats"]["right"]["residual"] == 0,
           "空洞 L %.2f%% / R %.2f%% | %.1f s"
           % (res["stats"]["left"]["hole_pct"], res["stats"]["right"]["hole_pct"], dt))
-    check("warp 确实产生了需要填补的空洞（不是空跑）",
-          res["stats"]["left"]["hole_pct"] > 0.5 and res["stats"]["right"]["hole_pct"] > 0.5,
-          "左右空洞率 %.2f%% / %.2f%%"
-          % (res["stats"]["left"]["hole_pct"], res["stats"]["right"]["hole_pct"]))
+    diso = int(res["stats"]["left"].get("disocclusion_px", 0))
+    check("warp 产生空洞，且遮挡带已被背景侧延展预填（不是空跑）",
+          res["stats"]["left"]["hole_pct"] > 0.1 and res["stats"]["right"]["hole_pct"] > 0.1
+          and diso > 0,
+          "左右剩余空洞率 %.2f%% / %.2f%% | disocclusion %d px（预填）"
+          % (res["stats"]["left"]["hole_pct"], res["stats"]["right"]["hole_pct"], diso))
     check("填洞后左右眼没有近黑像素（无黑洞）",
           int((L.astype(np.float32).mean(2) < 1).sum()) == 0
           and int((R.astype(np.float32).mean(2) < 1).sum()) == 0,

@@ -160,7 +160,8 @@ def _run_pipeline(I_w, D_w, hole, ref_rgb, ref_depth255, disp, cfg, log=None):
         hhf_sigma=cfg.hhf_sigma, hhf_ksize=cfg.hhf_ksize,
         shape_filter=cfg.crack_shape, max_thickness=cfg.max_thickness,
         slit_only=getattr(cfg, "slit_only", True),
-        translucent=getattr(cfg, "crack_translucent", "hhf"))
+        translucent=getattr(cfg, "crack_translucent", "hhf"),
+        same_surface=getattr(cfg, "crack_same_surface", False), surf_tol=20.0)
     I_w, D_w = res1["I_filled"], res1["D_filled"]
     hole = res1["remaining_holes"]
     stats.update(se_orientation=orient,
@@ -170,6 +171,7 @@ def _run_pipeline(I_w, D_w, hole, ref_rgb, ref_depth255, disp, cfg, log=None):
                  crack_empty_px=int(res1["empty_crack"].sum()),
                  crack_translucent_px=int(res1["translucent_crack"].sum()),
                  crack_translucent_kept_px=int(res1.get("translucent_kept_px", 0)),
+                 crack_disocclusion_removed_px=int(res1.get("crack_disocclusion_removed_px", 0)),
                  holes_after_cracks=int(hole.sum()))
     if log:
         log(f"  cracks: {stats['crack_px']} px detected (empty "

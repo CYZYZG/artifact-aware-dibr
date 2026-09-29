@@ -43,6 +43,7 @@ class FillConfig:
     beta_mode: str = "mean"   # mean (per-pixel MSE; paper's 35 is unreachable on 8-bit) | sum
     max_iter: int = 400000
     # Crack detection is a rule about THIN slits.  The raw paper rule (D_hat - D >= lam)
+    crack_same_surface: bool = False   # True = only same-surface slivers may be cracks
     crack_translucent: str = "hhf"   # "keep" = keep partially covered edge pixels as-is
     slit_only: bool = True
     # Widen the splat footprint before warping so that a fast disparity ramp at a

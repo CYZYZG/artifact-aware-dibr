@@ -162,7 +162,8 @@ def hhf_fill(img, valid, sigma=1.0, ksize=5, min_size=8, coarse_iters=16,
 
 def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
                 hhf_ksize=5, shape_filter="none", max_thickness=3.0,
-                slit_only=False, translucent="hhf"):
+                slit_only=False, translucent="hhf", same_surface=False,
+                surf_tol=20.0):
     """Detect cracks in D_w, refill D_w from D_hat, and refill I_w with HHF.
 
     shape_filter
@@ -207,6 +208,15 @@ def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
                 if r["thickness"] <= max_thickness}
         keep = np.isin(lab, list(thin)) if thin else np.zeros_like(hole)
         crack = (crack & hole & keep) | (crack & ~hole)
+    # A crack is a sliver INSIDE one surface (paper II-A).  Where the two sides belong to
+    # different surfaces the hole is a disocclusion band: filling it by horizontal
+    # interpolation mixes foreground and background (measured mixture ratio ~0.5) and leaves
+    # a ghost line hugging the silhouette.  Drop those pixels from the crack class.
+    removed_diso = 0
+    if same_surface:
+        diso = disocclusion_mask(D_w, hole, surf_tol=surf_tol, orientation=orientation)
+        removed_diso = int((crack & diso).sum())
+        crack = crack & ~diso
     if translucent == "keep":
         # A *translucent* crack pixel is only partially covered, so its blended colour is
         # already close to the right anti-aliased edge; replacing it with the HHF median
@@ -231,6 +241,7 @@ def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
     res = dict(crack=crack, crack_raw=crack_raw, D_hat=D_hat, diff=diff, D_filled=D_filled,
                big_hole_crack_px=int(big_hole_px),
                translucent_kept_px=int(translucent_kept.sum()),
+               crack_disocclusion_removed_px=int(removed_diso),
                hhf_unsupported_px=int((crack & ~sup_hhf).sum()),
                I_hhf=I_hhf, I_filled=I_filled, hole=hole,
                remaining_holes=hole & ~crack,
@@ -238,6 +249,69 @@ def fill_cracks(I_w, D_w, lam=5.0, se_len=4, orientation="v", hhf_sigma=1.0,
     res.update(extra)
     return res
 
+
+# --------------------------------------------------------------------------- #
+# disocclusion vs crack: which side of a hole does the content belong to?
+# --------------------------------------------------------------------------- #
+def _nearest_valid(valid, axis=1):
+    """Index of the nearest valid pixel to the left/right (axis=1) of every pixel."""
+    idx = np.arange(valid.shape[1], dtype=np.int32)[None, :].repeat(valid.shape[0], 0)
+    left = np.maximum.accumulate(np.where(valid, idx, -10 ** 6), axis=1)
+    right = np.minimum.accumulate(np.where(valid, idx, 10 ** 6)[:, ::-1], axis=1)[:, ::-1]
+    return left, right
+
+
+def disocclusion_mask(D_w, hole, surf_tol=20.0, orientation="h"):
+    """Hole pixels whose two sides belong to DIFFERENT surfaces (a disocclusion band).
+
+    A crack (paper II-A) is a thin sliver *inside one surface*, so the valid pixels on both
+    sides have nearly the same disparity.  Where they differ by more than `surf_tol`
+    (in the 0..255 inverse-depth unit) the hole is background newly exposed by the
+    foreground moving away: filling it by interpolation would smear foreground colour into
+    the background, so it must not be treated as a crack.
+    """
+    D = np.asarray(D_w, np.float32)
+    hole = np.asarray(hole, bool)
+    if orientation == "v":
+        return disocclusion_mask(D.T, hole.T, surf_tol, "h").T
+    h, w = D.shape
+    left, right = _nearest_valid(~hole)
+    okL, okR = left > -10 ** 5, right < 10 ** 5
+    xl = np.clip(left, 0, w - 1).astype(np.int32)
+    xr = np.clip(right, 0, w - 1).astype(np.int32)
+    rows = np.arange(h)[:, None]
+    sep = np.abs(D[rows, xl] - D[rows, xr])
+    return hole & okL & okR & (sep > surf_tol)
+
+
+def bg_side_fill(I_w, D_w, hole, mask, orientation="h"):
+    """Fill `mask` by copying the nearest pixel on the BACKGROUND side (the farther one).
+
+    The band left behind when the foreground moves away is background, so the natural fill
+    is a one-directional extension of the background next to it - never a blend towards the
+    foreground.  Returns (I_filled, D_filled).
+    """
+    I = np.asarray(I_w, np.float32).copy()
+    D = np.asarray(D_w, np.float32).copy()
+    hole = np.asarray(hole, bool)
+    mask = np.asarray(mask, bool)
+    if not mask.any():
+        return I, D
+    if orientation == "v":
+        Iv, Dv = bg_side_fill(I.T.copy(), D.T.copy(), hole.T, mask.T, "h")
+        return Iv.T, Dv.T
+    h, w = D.shape
+    left, right = _nearest_valid(~hole)
+    okL, okR = left > -10 ** 5, right < 10 ** 5
+    xl = np.clip(left, 0, w - 1).astype(np.int32)
+    xr = np.clip(right, 0, w - 1).astype(np.int32)
+    rows = np.arange(h)[:, None]
+    use_left = okL & (~okR | (D[rows, xl] <= D[rows, xr]))   # smaller inverse depth = farther
+    src = np.where(use_left, xl, xr)
+    ys, xs = np.where(mask)
+    I[ys, xs] = I[ys, src[ys, xs]]
+    D[ys, xs] = D[ys, src[ys, xs]]
+    return I, D
 
 # --------------------------------------------------------------------------- #
 # shape statistics of the hole components (how crack-like is the data?)
